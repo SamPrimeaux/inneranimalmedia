@@ -7,8 +7,9 @@
  *
  * GET    /api/images?source=all|r2|cf_images|drive&page=1&per_page=50
  * POST   /api/images/upload  (multipart) — also POST /api/images (multipart or JSON url)
- * POST   /api/images/import/drive  { drive_file_id } — explicit copy into R2+CF+D1 (not browse)
+ * POST   /api/images/import/drive  { drive_file_id } — R2 + D1 only (never auto-hosts on CF Images)
  * GET    /api/images/drive/:fileId/preview|thumbnail — OAuth-proxied preview (browse only; no R2)
+ * GET    /api/images/capabilities — CF / R2 / Drive connection summary for Storage sidebar
  * DELETE /api/images/:id
  * POST   /api/images/generate  { persist: false default — draft until commit }
  * POST   /api/images/save     { generation_id, category?, tags?, project_id? } — save draft to library
@@ -19,15 +20,14 @@
  * GET    /api/images/tags?workspace_id=
  * PATCH  /api/images/:id  { tags, label, notes, alt_text, category, project_slug, is_live, preferred_bg }
  *
- * Storage sync (triple-write) applies only to IAM-owned assets (upload + Import to R2):
- * - D1 `images` — query/filter SSOT for dashboard
- * - CF Images `meta` — PATCH v1/{id} on save; read on cf_live list (1024 byte cap)
- * - R2 customMetadata (x-amz-meta-* iam_* keys, 2KB) + `{key}.iammeta.json` sidecar
- * Drive tab is browse-only via Google OAuth — files stay in the user's Drive until Import to R2.
+ * Storage lanes (do not dilute):
+ * - `images.r2_key` = R2 object path only (NULL when CF-hosted-only)
+ * - `images.cloudflare_image_id` = CF Images UUID only (NULL when R2-only)
+ * - Drive browse = no D1 row until Import (Import ≠ Host on CF Images)
  */
 
 import { jsonResponse } from '../core/responses.js';
-import { getR2Binding, listR2BucketsForCatalog } from './r2-api.js';
+import { getR2Binding, listR2BucketsForCatalog, listBoundR2BucketNames } from './r2-api.js';
 import { assertDashboardR2BucketAccess } from '../core/r2-storage-scope.js';
 import { getOAuthToken } from '../core/user-oauth-token.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
@@ -517,9 +517,26 @@ async function listAllCfImagesLive(env, authUserId, knownCfIds) {
   return { items, accountHash };
 }
 
+async function driveAccountSummary(env, userId) {
+  try {
+    const { getIntegrationOAuthRow } = await import('../core/user-oauth-token.js');
+    const row = await getIntegrationOAuthRow(env, userId, 'google_drive', '');
+    if (!row) return { connected: false, account_email: null };
+    return {
+      connected: true,
+      account_email: String(row.account_email || row.account_display || '').trim() || null,
+      expires_at: row.expires_at != null ? Number(row.expires_at) : null,
+      has_refresh: !!(row.refresh_token || row.vault_refresh_token_id || row.refresh_token_encrypted),
+    };
+  } catch {
+    return { connected: false, account_email: null };
+  }
+}
+
 async function listDriveImages(env, userId, origin) {
+  const acct = await driveAccountSummary(env, userId);
   const token = await getOAuthToken(env, userId, 'google_drive');
-  if (!token) return { items: [], connected: false };
+  if (!token) return { items: [], ...acct, connected: false };
 
   const q = encodeURIComponent("mimeType contains 'image/' and trashed = false");
   const res = await fetch(
@@ -528,10 +545,23 @@ async function listDriveImages(env, userId, origin) {
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return { items: [], connected: true, error: data.error?.message || res.statusText };
+    return {
+      items: [],
+      connected: true,
+      account_email: acct.account_email,
+      expires_at: acct.expires_at,
+      has_refresh: acct.has_refresh,
+      error: data.error?.message || res.statusText,
+    };
   }
   const items = (data.files || []).map((f) => mapDriveFile(f, userId, origin));
-  return { items, connected: true };
+  return {
+    items,
+    connected: true,
+    account_email: acct.account_email,
+    expires_at: acct.expires_at,
+    has_refresh: acct.has_refresh,
+  };
 }
 
 async function handleDriveMedia(env, authUser, fileId, variant) {
@@ -828,6 +858,9 @@ async function handleGetImages(request, url, env, authUser, identity) {
       per_page: perPage,
       drive_connected: drive.connected,
       drive_error: drive.error || null,
+      drive_account_email: drive.account_email || null,
+      drive_expires_at: drive.expires_at ?? null,
+      drive_has_refresh: drive.has_refresh ?? null,
       /** Browse-only: list/preview never writes R2/CF/D1. Copy only via POST /import/drive. */
       drive_browse_only: true,
       accountHash,
@@ -1171,27 +1204,11 @@ async function handleDriveImport(request, url, env, authUser, identity) {
     is_live: false,
     preferred_bg: '',
   };
-  const cfMetaPayload = buildCfImagesMetaPayload({
-    tags: driveTags,
-    meta: driveMeta,
-    scope,
-    alt_text: null,
-    filename,
-  });
-  cfMetaPayload.driveFileId = driveFileId;
 
-  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
-  let cfId = null;
-  let publicUrl = proxyR2Url(url.origin, r2Key);
-  let thumbUrl = publicUrl;
-
-  const fileBlob = new File([buf], filename, { type: mime });
-  const cf = await uploadToCfImages(env, fileBlob, cfMetaPayload);
-  if (!cf.error && cf.imageId) {
-    cfId = cf.imageId;
-    publicUrl = cfDeliveryUrl(accountHash, cfId, 'public') || publicUrl;
-    thumbUrl = cfDeliveryUrl(accountHash, cfId, 'thumbnail') || publicUrl;
-  }
+  // Import to R2 = R2 + D1 only. Never auto-upload to Cloudflare Images.
+  const publicUrl = proxyR2Url(url.origin, r2Key);
+  const thumbUrl = publicUrl;
+  const cfId = null;
 
   const r2Sidecar = buildR2SidecarPayload({
     tags: driveTags,
@@ -1209,6 +1226,7 @@ async function handleDriveImport(request, url, env, authUser, identity) {
   });
   await writeR2MetaSidecar(binding, r2Key, r2Sidecar);
 
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const rowId = `img_${imageUuid.replace(/-/g, '').slice(0, 24)}`;
   const row = await insertImageRow(env, {
     id: rowId,
@@ -1233,7 +1251,7 @@ async function handleDriveImport(request, url, env, authUser, identity) {
   });
 
   const item = mapD1RowToItem(row, { origin: url.origin, accountHash });
-  return jsonResponse({ ok: true, item, image: item });
+  return jsonResponse({ ok: true, item, image: item, imported_to: 'r2_d1' });
 }
 
 async function handleDelete(imageId, request, url, env, authUser, identity) {
@@ -1267,10 +1285,11 @@ async function handleDelete(imageId, request, url, env, authUser, identity) {
   }
 
   if (row.cloudflare_image_id) await deleteCfImage(env, row.cloudflare_image_id);
-  if (row.r2_key) {
+  const r2Key = String(row.r2_key || '').trim();
+  if (r2Key && !r2Key.startsWith('__cf_hosted__/')) {
     const binding = getR2Binding(env, BUCKET);
-    await binding?.delete?.(row.r2_key).catch(() => {});
-    await binding?.delete?.(metaSidecarKey(row.r2_key)).catch(() => {});
+    await binding?.delete?.(r2Key).catch(() => {});
+    await binding?.delete?.(metaSidecarKey(r2Key)).catch(() => {});
   }
 
   await env.DB.prepare(
@@ -1282,9 +1301,11 @@ async function handleDelete(imageId, request, url, env, authUser, identity) {
   return jsonResponse({ ok: true, id: imageId });
 }
 
-async function fetchCfImageDetail(env, cfId) {
-  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+async function fetchCfImageDetail(env, cfId, creds = null) {
+  const accountId = String(creds?.accountId || env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(
+    creds?.token || env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '',
+  ).trim();
   if (!accountId || !token || !cfId) return null;
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1/${encodeURIComponent(cfId)}`,
@@ -1293,6 +1314,30 @@ async function fetchCfImageDetail(env, cfId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data?.success) return null;
   return data.result || null;
+}
+
+async function resolveCfImagesApiCreds(env, scope) {
+  try {
+    const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+    const cfCtx = await resolveCfImagesUploadContext(env, {
+      userId: scope.userId,
+      workspaceId: scope.workspaceId,
+    });
+    if (cfCtx?.ok && cfCtx.accountId && cfCtx.token) {
+      return {
+        accountId: cfCtx.accountId,
+        token: cfCtx.token,
+        accountHash: cfCtx.accountHash || null,
+      };
+    }
+  } catch {
+    /* platform secrets */
+  }
+  return {
+    accountId: String(env.CLOUDFLARE_ACCOUNT_ID || '').trim(),
+    token: String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim(),
+    accountHash: String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim() || null,
+  };
 }
 
 async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
@@ -1308,7 +1353,8 @@ async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
     .catch(() => null);
   if (existing) return existing;
 
-  const cfImg = await fetchCfImageDetail(env, cfId);
+  const creds = await resolveCfImagesApiCreds(env, scope);
+  const cfImg = await fetchCfImageDetail(env, cfId, creds);
   const cfRawMeta = cfImg?.metadata || cfImg?.meta || {};
   const parsed = parseIamMetaFromStorage(cfRawMeta);
   const imageUuid = crypto.randomUUID();
@@ -1317,7 +1363,12 @@ async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
   const publicUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'public') : '';
   const thumbUrl = accountHash ? cfDeliveryUrl(accountHash, cfId, 'thumbnail') : publicUrl;
   const uploaded = cfImg?.uploaded || cfImg?.created;
-  const createdUnix = uploaded ? Math.floor(new Date(uploaded).getTime() / 1000) : Math.floor(Date.now() / 1000);
+  const createdUnix = uploaded
+    ? Math.floor(new Date(uploaded).getTime() / 1000)
+    : Math.floor(Date.now() / 1000);
+
+  // CF-hosted-only: r2_key stays NULL (migration 1024). Never invent a fake R2 path.
+  const r2Key = null;
 
   const row = {
     id: rowId,
@@ -1330,7 +1381,7 @@ async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
     size: Number(cfImg?.size) || 0,
     width: cfImg?.width != null ? Number(cfImg.width) : null,
     height: cfImg?.height != null ? Number(cfImg.height) : null,
-    r2_key: null,
+    r2_key: r2Key,
     cloudflare_image_id: cfId,
     url: publicUrl,
     thumbnail_url: thumbUrl,
@@ -1341,50 +1392,79 @@ async function registerCfImageToD1(env, scope, authUser, cfId, origin) {
       ...parsed.meta,
       registered_from: 'cf_live',
       origin: origin || '',
+      cf_hosted_only: true,
     }),
     workspace_id: scope.workspaceId,
   };
 
-  await env.DB.prepare(
-    `INSERT INTO images (
-      id, tenant_id, project_id, user_id, filename, original_filename,
-      mime_type, size, width, height, r2_key, cloudflare_image_id,
-      url, thumbnail_url, alt_text, description, tags, metadata, status,
-      created_at, updated_at, workspace_id
-    ) VALUES (
-      ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?,
-      ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?
-    )`,
-  )
-    .bind(
-      row.id,
-      row.tenant_id,
-      row.project_id,
-      row.user_id,
-      row.filename,
-      row.original_filename,
-      row.mime_type,
-      row.size,
-      row.width,
-      row.height,
-      row.r2_key,
-      row.cloudflare_image_id,
-      row.url,
-      row.thumbnail_url,
-      row.alt_text,
-      row.description,
-      row.tags,
-      row.metadata,
-      'active',
-      createdUnix,
-      Math.floor(Date.now() / 1000),
-      row.workspace_id,
+  try {
+    await env.DB.prepare(
+      `INSERT INTO images (
+        id, tenant_id, project_id, user_id, filename, original_filename,
+        mime_type, size, width, height, r2_key, cloudflare_image_id,
+        url, thumbnail_url, alt_text, description, tags, metadata, status,
+        created_at, updated_at, workspace_id
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?
+      )`,
     )
-    .run();
+      .bind(
+        row.id,
+        row.tenant_id,
+        row.project_id,
+        row.user_id,
+        row.filename,
+        row.original_filename,
+        row.mime_type,
+        row.size,
+        row.width,
+        row.height,
+        row.r2_key,
+        row.cloudflare_image_id,
+        row.url,
+        row.thumbnail_url,
+        row.alt_text,
+        row.description,
+        row.tags,
+        row.metadata,
+        'active',
+        createdUnix,
+        Math.floor(Date.now() / 1000),
+        row.workspace_id,
+      )
+      .run();
+  } catch (e) {
+    const again = await env.DB.prepare(
+      `SELECT * FROM images
+       WHERE cloudflare_image_id = ? AND user_id = ?
+         AND COALESCE(status, 'active') = 'active'
+       LIMIT 1`,
+    )
+      .bind(cfId, scope.userId)
+      .first()
+      .catch(() => null);
+    if (again) return again;
+    console.warn('[images] registerCfImageToD1 insert failed', e?.message || e);
+    return {
+      ...row,
+      created_at: createdUnix,
+      updated_at: createdUnix,
+      status: 'active',
+      parent_image_id: null,
+      transform_json: null,
+      _synthetic: true,
+    };
+  }
 
-  return { ...row, created_at: createdUnix, updated_at: Math.floor(Date.now() / 1000) };
+  return {
+    ...row,
+    created_at: createdUnix,
+    updated_at: Math.floor(Date.now() / 1000),
+    status: 'active',
+  };
 }
 
 async function getImageRowForPatch(env, imageId, scope, authUser, origin) {
@@ -1638,15 +1718,138 @@ async function handleGetImageDetail(url, env, authUser, identity, imageId) {
     url.searchParams.get('workspace_id')?.trim(),
   );
   if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+
+  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
+  const origin = url.origin;
+  const id = String(imageId || '').trim();
+
+  // Drive browse-only detail — never requires a D1 images row.
+  if (id.startsWith('drive_')) {
+    const fileId = id.slice('drive_'.length);
+    if (!fileId) return jsonResponse({ error: 'Not found' }, 404);
+    const token = await getOAuthToken(env, scope.userId, 'google_drive');
+    if (!token) return jsonResponse({ error: 'Google Drive not connected' }, 400);
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,createdTime,thumbnailLink,webViewLink,webContentLink`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const meta = await metaRes.json().catch(() => ({}));
+    if (!metaRes.ok) {
+      return jsonResponse({ error: meta.error?.message || 'Not found' }, metaRes.status === 404 ? 404 : 502);
+    }
+    const item = mapDriveFile(meta, scope.userId, origin);
+    return jsonResponse({
+      ok: true,
+      item,
+      image: item,
+      variants: {},
+      browse_only: true,
+      source: 'drive',
+      accountHash,
+      parent_image_id: null,
+      transform_json: null,
+      derivatives: [],
+      capabilities: { cf_images: false, drive: true },
+    });
+  }
+
   if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-  const rowOrErr = await getImageRowForPatch(env, imageId, scope, authUser, url.origin);
+  // CF live list ids — prefer existing D1 by cloudflare_image_id; else synthetic delivery URLs (no fake r2_key).
+  if (id.startsWith('cf_live_')) {
+    const cfId = id.slice('cf_live_'.length);
+    let row = await env.DB.prepare(
+      `SELECT * FROM images
+       WHERE cloudflare_image_id = ? AND user_id = ?
+         AND COALESCE(status, 'active') = 'active'
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+      .bind(cfId, scope.userId)
+      .first()
+      .catch(() => null);
+
+    if (!row) {
+      row = await registerCfImageToD1(env, scope, authUser, cfId, origin);
+    }
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+
+    const item = row._synthetic
+      ? {
+          ...mapCfApiImage(
+            { id: cfId, metadata: {}, size: row.size, width: row.width, height: row.height, uploaded: row.created_at },
+            accountHash,
+            scope.userId,
+          ),
+          filename: row.filename,
+          url: row.url || cfDeliveryUrl(accountHash, cfId, 'public'),
+          thumbnail_url: row.thumbnail_url || cfDeliveryUrl(accountHash, cfId, 'thumbnail'),
+          cloudflare_image_id: cfId,
+          r2_key: null,
+        }
+      : mapD1RowToItem(row, { origin, accountHash });
+
+    // Always expose real CF delivery URLs for hosted images.
+    if (accountHash && cfId) {
+      item.url = cfDeliveryUrl(accountHash, cfId, 'public') || item.url;
+      item.thumbnail_url = cfDeliveryUrl(accountHash, cfId, 'thumbnail') || item.thumbnail_url;
+      item.cloudflare_image_id = cfId;
+      item.r2_key = row.r2_key || null;
+      item.source = 'cf_images';
+    }
+
+    const variants = {};
+    if (cfId && accountHash) {
+      for (const v of ['public', 'thumbnail', 'small', 'medium', 'large', 'hero', 'avatar']) {
+        variants[v] = cfDeliveryUrl(accountHash, cfId, v);
+      }
+    }
+
+    let derivatives = [];
+    if (!row._synthetic) {
+      try {
+        const { results } = await env.DB.prepare(
+          `SELECT id, filename, thumbnail_url, url, created_at FROM images
+           WHERE parent_image_id = ? AND COALESCE(status, 'active') = 'active'
+           ORDER BY created_at DESC LIMIT 50`,
+        )
+          .bind(row.id)
+          .all();
+        derivatives = results || [];
+      } catch {
+        derivatives = [];
+      }
+    }
+
+    const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+    const cfCtx = await resolveCfImagesUploadContext(env, {
+      userId: scope.userId,
+      workspaceId: scope.workspaceId,
+    }).catch(() => null);
+
+    return jsonResponse({
+      ok: true,
+      item,
+      image: item,
+      variants,
+      accountHash,
+      parent_image_id: row.parent_image_id || null,
+      transform_json: row.transform_json ? safeJsonParse(row.transform_json) : null,
+      derivatives,
+      capabilities: { cf_images: !!(cfCtx && cfCtx.ok), source: cfCtx?.source || null },
+    });
+  }
+
+  const rowOrErr = await getImageRowForPatch(env, id, scope, authUser, origin);
   if (!rowOrErr) return jsonResponse({ error: 'Not found' }, 404);
   if (rowOrErr.forbidden) return jsonResponse({ error: 'Forbidden' }, 403);
   const row = rowOrErr;
 
-  const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
-  const item = mapD1RowToItem(row, { origin: url.origin, accountHash });
+  const item = mapD1RowToItem(row, { origin, accountHash });
+  if (row.cloudflare_image_id && accountHash) {
+    item.url = cfDeliveryUrl(accountHash, row.cloudflare_image_id, 'public') || item.url;
+    item.thumbnail_url =
+      cfDeliveryUrl(accountHash, row.cloudflare_image_id, 'thumbnail') || item.thumbnail_url;
+  }
 
   const variants = {};
   if (row.cloudflare_image_id) {
@@ -1680,6 +1883,7 @@ async function handleGetImageDetail(url, env, authUser, identity, imageId) {
     item,
     image: item,
     variants,
+    accountHash,
     parent_image_id: row.parent_image_id || null,
     transform_json: row.transform_json ? safeJsonParse(row.transform_json) : null,
     derivatives,
@@ -2191,6 +2395,63 @@ async function handleBatchMigrate(request, url, env, authUser, identity) {
  * @param {unknown} authUser
  * @param {{ workspaceId?: string, tenantId?: string } | null | undefined} identity
  */
+async function handleImagesCapabilities(url, env, authUser, identity) {
+  const scope = await resolveScope(
+    env,
+    authUser,
+    identity,
+    url.searchParams.get('workspace_id')?.trim(),
+  );
+  if (scope.error) return jsonResponse({ error: scope.error }, scope.status);
+
+  const { resolveCloudflareOAuthToken } = await import('../core/user-oauth-token.js');
+  const { resolveCfImagesUploadContext } = await import('../core/cf-oauth-images.js');
+
+  const cfTok = await resolveCloudflareOAuthToken(env, scope.userId, { nearExpirySeconds: 300 });
+  const cfCtx = await resolveCfImagesUploadContext(env, {
+    userId: scope.userId,
+    workspaceId: scope.workspaceId,
+  }).catch(() => null);
+  const drive = await driveAccountSummary(env, scope.userId);
+  let r2Buckets = [];
+  try {
+    r2Buckets = listBoundR2BucketNames(env) || [];
+  } catch {
+    r2Buckets = [];
+  }
+  if (!r2Buckets.length) {
+    try {
+      const cat = await listR2BucketsForCatalog(env, {
+        authUser,
+        workspaceId: scope.workspaceId,
+      });
+      r2Buckets = (cat?.buckets || []).map((b) => (typeof b === 'string' ? b : b.name)).filter(Boolean);
+    } catch {
+      r2Buckets = [];
+    }
+  }
+
+  return jsonResponse({
+    ok: true,
+    cf_images: !!(cfCtx && cfCtx.ok),
+    cf_oauth: !!(cfTok && cfTok.ok),
+    cf_oauth_refreshed: !!(cfTok && cfTok.refreshed),
+    cf_expires_at: cfTok?.expiresAt ?? null,
+    account_hash: cfCtx?.accountHash || env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || null,
+    accountHash: cfCtx?.accountHash || env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || null,
+    account_id: cfCtx?.accountId || cfTok?.accountId || null,
+    source: cfCtx?.source || null,
+    r2: r2Buckets.length > 0,
+    r2_buckets: r2Buckets,
+    drive: !!drive.connected,
+    drive_connected: !!drive.connected,
+    drive_account_email: drive.account_email || null,
+    drive_expires_at: drive.expires_at ?? null,
+    drive_has_refresh: drive.has_refresh ?? null,
+    images_transformed: null,
+  });
+}
+
 export async function handleImagesApi(request, url, env, authUser, identity) {
   if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
 
@@ -2198,6 +2459,10 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
   const pathLower = path.toLowerCase();
   const method = request.method.toUpperCase();
   const wsHint = url.searchParams.get('workspace_id')?.trim() || identity?.workspaceId || '';
+
+  if (pathLower === '/api/images/capabilities' && method === 'GET') {
+    return handleImagesCapabilities(url, env, authUser, identity);
+  }
 
   if (pathLower === '/api/images/tags' && method === 'GET') {
     return handleListTags(url, env, authUser, identity);

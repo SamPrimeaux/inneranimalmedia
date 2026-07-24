@@ -4,12 +4,14 @@ import {
   ChevronRight,
   Copy,
   Download,
+  Eye,
   MoreHorizontal,
   Pencil,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { connectGoogleDrive, fetchR2BucketNames } from '../../src/lib/library/libraryApi';
 import { cloudflareImageUrl } from '../../src/lib/cloudflareImageUrl';
 import { ImageBatchBar } from './ImageBatchBar';
 import type { ImagesOutletContext } from './ImagesShell';
@@ -46,7 +48,7 @@ type CfImage = {
   mime_type?: string;
 };
 
-const PER_PAGE = 20;
+const PER_PAGE = 50;
 
 export function ImagesStoragePage() {
   const { workspaceId } = useOutletContext<ImagesOutletContext>();
@@ -65,6 +67,11 @@ export function ImagesStoragePage() {
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
+  const [driveAccountEmail, setDriveAccountEmail] = useState<string | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [r2Buckets, setR2Buckets] = useState<string[]>([]);
+  const [connectingDrive, setConnectingDrive] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -85,6 +92,16 @@ export function ImagesStoragePage() {
       setImages(rows);
       setTotal(typeof d.total === 'number' ? d.total : rows.length);
       if (d.accountHash) setAccountHash(String(d.accountHash));
+      if (typeof d.drive_connected === 'boolean') setDriveConnected(d.drive_connected);
+      setDriveAccountEmail(
+        typeof d.drive_account_email === 'string' && d.drive_account_email
+          ? d.drive_account_email
+          : null,
+      );
+      setDriveError(typeof d.drive_error === 'string' && d.drive_error ? d.drive_error : null);
+      if (Array.isArray(d.r2_buckets) && d.r2_buckets.length) {
+        setR2Buckets(d.r2_buckets.map((b: string | { name?: string }) => (typeof b === 'string' ? b : b.name || '')).filter(Boolean));
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Network error');
     } finally {
@@ -95,6 +112,37 @@ export function ImagesStoragePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (source !== 'r2') return;
+    let cancelled = false;
+    fetchR2BucketNames()
+      .then((list) => {
+        if (!cancelled && list.length) setR2Buckets(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
+
+  const onConnectDrive = useCallback(async () => {
+    setConnectingDrive(true);
+    try {
+      const result = await connectGoogleDrive('/dashboard/images/storage');
+      if (result.ok) {
+        toast('Google Drive connected');
+        setSource('drive');
+        await load();
+      } else if (result.error && result.error !== 'popup_blocked') {
+        toast(`Drive connect failed: ${result.error}`, 'err');
+      }
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Drive connect failed', 'err');
+    } finally {
+      setConnectingDrive(false);
+    }
+  }, [load, toast]);
 
   useEffect(() => {
     setPage(1);
@@ -162,8 +210,8 @@ export function ImagesStoragePage() {
     }
   };
 
-  const toggleSelect = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleSelect = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -338,8 +386,16 @@ export function ImagesStoragePage() {
             setDragOver(false);
             if (e.dataTransfer.files?.length) void uploadFiles(e.dataTransfer.files);
           }}
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            if (source === 'drive') return;
+            fileRef.current?.click();
+          }}
           style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
             border: `1px dashed ${dragOver ? 'var(--solar-cyan)' : 'var(--border-subtle)'}`,
             borderRadius: 12,
             padding: '28px 16px',
@@ -347,15 +403,21 @@ export function ImagesStoragePage() {
             background: dragOver
               ? 'color-mix(in srgb, var(--solar-cyan) 8%, var(--bg-panel))'
               : 'var(--bg-panel)',
-            cursor: busy ? 'wait' : 'pointer',
+            cursor: source === 'drive' ? 'default' : busy ? 'wait' : 'pointer',
             marginBottom: 16,
             color: 'var(--text-muted)',
             fontSize: 13,
+            fontFamily: 'inherit',
+            opacity: source === 'drive' ? 0.65 : 1,
           }}
         >
-          <Upload size={20} style={{ color: 'var(--solar-cyan)', marginBottom: 8 }} />
-          <div>
-            {busy ? 'Uploading…' : 'Drop images here or click to upload'}
+          <Upload size={22} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />
+          <div style={{ lineHeight: 1.4 }}>
+            {source === 'drive'
+              ? 'Drive is browse-only — Import copies to R2 + registry (not CF Images)'
+              : busy
+                ? 'Uploading…'
+                : 'Drop images here or click to upload'}
           </div>
           <input
             ref={fileRef}
@@ -420,9 +482,14 @@ export function ImagesStoragePage() {
                   key={img.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => navigate(`/dashboard/images/${encodeURIComponent(img.id)}`)}
+                  onClick={() => toggleSelect(img.id)}
+                  onDoubleClick={() => navigate(`/dashboard/images/${encodeURIComponent(img.id)}`)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') navigate(`/dashboard/images/${encodeURIComponent(img.id)}`);
+                    if (e.key === 'Enter') toggleSelect(img.id);
+                    if (e.key === ' ') {
+                      e.preventDefault();
+                      navigate(`/dashboard/images/${encodeURIComponent(img.id)}`);
+                    }
                   }}
                   style={{
                     border: isSel
@@ -433,6 +500,7 @@ export function ImagesStoragePage() {
                     background: 'var(--bg-panel)',
                     cursor: 'pointer',
                     position: 'relative',
+                    fontFamily: 'inherit',
                   }}
                 >
                   <div style={{ position: 'relative', aspectRatio: '4/3', background: 'var(--bg-elevated)' }}>
@@ -514,6 +582,14 @@ export function ImagesStoragePage() {
                           }}
                         >
                           <MenuItem
+                            icon={<Eye size={12} />}
+                            label="Open"
+                            onClick={() => {
+                              setMenuId(null);
+                              navigate(`/dashboard/images/${encodeURIComponent(img.id)}`);
+                            }}
+                          />
+                          <MenuItem
                             icon={<Pencil size={12} />}
                             label="Edit"
                             onClick={() => {
@@ -553,18 +629,19 @@ export function ImagesStoragePage() {
                   <div style={{ padding: '9px 11px' }}>
                     <div
                       style={{
-                        fontSize: 11,
+                        fontSize: 13,
                         fontWeight: 500,
                         color: 'var(--text-main)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
+                        fontFamily: 'inherit',
                       }}
                       title={img.filename || img.id}
                     >
                       {img.filename || img.id}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, fontFamily: 'inherit' }}>
                       {img.source === 'cf_images'
                         ? 'CF Images'
                         : img.source === 'drive'
@@ -572,6 +649,7 @@ export function ImagesStoragePage() {
                           : img.source === 'r2'
                             ? 'R2'
                             : '—'}
+                      <span style={{ opacity: 0.7 }}> · click select · double-click open</span>
                     </div>
                   </div>
                 </div>
@@ -623,9 +701,16 @@ export function ImagesStoragePage() {
       >
         <ImagesUsageAccountSidebar
           workspaceId={workspaceId}
+          source={source}
           imagesStored={total}
           imagesTransformed={transformed}
           accountHash={accountHash}
+          driveConnected={driveConnected}
+          driveAccountEmail={driveAccountEmail}
+          driveError={driveError}
+          r2Buckets={r2Buckets}
+          onConnectDrive={() => void onConnectDrive()}
+          connectingDrive={connectingDrive}
           onCopy={(msg) => toast(msg.includes('fail') ? msg : msg, msg.includes('fail') ? 'err' : 'ok')}
         />
       </div>

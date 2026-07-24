@@ -58,24 +58,20 @@
 			"bucket_name": "inneranimalmedia"
 		},
 		{
-			"binding": "DASHBOARD",
-			"bucket_name": "inneranimalmedia"
-		},
-		{
 			"binding": "AUTORAG_BUCKET",
 			"bucket_name": "inneranimalmedia-autorag"
+		},
+		{
+			"binding": "ARTIFACTS",
+			"bucket_name": "artifacts"
 		},
 		{
 			"binding": "CMS_BUCKET",
 			"bucket_name": "cms"
 		},
 		{
-			"binding": "R2",
-			"bucket_name": "iam-platform"
-		},
-		{
-			"binding": "TOOLS",
-			"bucket_name": "tools"
+			"binding": "CAD",
+			"bucket_name": "cad"
 		}
 	],
 	"hyperdrive": [

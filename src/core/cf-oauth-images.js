@@ -1,103 +1,35 @@
 /**
- * CF Images upload credentials — user OAuth REST API first, platform token fallback.
- * SSOT: user_oauth_tokens (provider=cloudflare) + agentsam_workspace.cloudflare_account_id.
+ * CF Images upload credentials — user Cloudflare OAuth REST API first, platform token fallback.
+ * SSOT for OAuth refresh: `resolveCloudflareOAuthToken` in user-oauth-token.js (single refresh path).
+ * Do not re-implement dash.cloudflare.com/oauth2/token refresh here.
  */
-import { getIntegrationOAuthRow } from './user-oauth-token.js';
-import { encryptWithVault } from './oauth-token-store.js';
+import { resolveCloudflareOAuthToken } from './user-oauth-token.js';
 import { getAgentsamWorkspace } from './agentsam-workspace.js';
-
-const REFRESH_BUFFER_SEC = 300;
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
-function nowSeconds() {
-  return Math.floor(Date.now() / 1000);
-}
-
-async function fetchCloudflareOAuthRow(env, userId) {
-  if (!env?.DB || !userId) return null;
-  return env.DB.prepare(
-    `SELECT access_token, access_token_encrypted, refresh_token, refresh_token_encrypted,
-            expires_at, updated_at
-       FROM user_oauth_tokens
-      WHERE user_id = ?
-        AND lower(provider) = 'cloudflare'
-        AND COALESCE(is_active, 1) = 1
-      ORDER BY COALESCE(updated_at, 0) DESC
-      LIMIT 1`,
-  )
-    .bind(trim(userId))
-    .first()
-    .catch(() => null);
-}
-
-async function persistCloudflareTokens(env, userId, { accessToken, refreshToken, expiresAt }) {
-  if (!env?.DB || !userId || !accessToken) return;
-  const encAccess = await encryptWithVault(env, accessToken).catch(() => null);
-  const encRefresh = refreshToken ? await encryptWithVault(env, refreshToken).catch(() => null) : null;
-  await env.DB.prepare(
-    `UPDATE user_oauth_tokens
-        SET access_token = ?,
-            access_token_encrypted = ?,
-            refresh_token = COALESCE(?, refresh_token),
-            refresh_token_encrypted = COALESCE(?, refresh_token_encrypted),
-            expires_at = ?,
-            updated_at = unixepoch()
-      WHERE user_id = ?
-        AND lower(provider) = 'cloudflare'`,
-  )
-    .bind(accessToken, encAccess, refreshToken || null, encRefresh, expiresAt ?? null, trim(userId))
-    .run()
-    .catch(() => null);
-}
-
-export async function refreshCloudflareOAuthToken(env, userId, row) {
-  const { decryptWithVault } = await import('./oauth-token-store.js');
-  let refreshToken = trim(row?.refresh_token);
-  if (!refreshToken && row?.refresh_token_encrypted) {
-    refreshToken = (await decryptWithVault(env, row.refresh_token_encrypted).catch(() => null)) || '';
-  }
-  const clientId = trim(env.CLOUDFLARE_OAUTH_CLIENT_ID);
-  const clientSecret = trim(env.CLOUDFLARE_OAUTH_CLIENT_SECRET);
-  if (!refreshToken || !clientId || !clientSecret) return null;
-
-  const basic = btoa(`${clientId}:${clientSecret}`);
-  const res = await fetch('https://dash.cloudflare.com/oauth2/token', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${basic}`,
-    },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken }).toString(),
-  });
-  const data = await res.json().catch(() => ({}));
-  const accessToken = trim(data.access_token);
-  if (!res.ok || !accessToken) return null;
-  const expiresAt = data.expires_in ? nowSeconds() + Number(data.expires_in) : null;
-  await persistCloudflareTokens(env, userId, {
-    accessToken,
-    refreshToken: trim(data.refresh_token) || refreshToken,
-    expiresAt,
-  });
-  return accessToken;
-}
-
+/**
+ * Access token for Cloudflare API (Images / accounts). Refreshes via canonical resolver only.
+ * @returns {Promise<string|null>}
+ */
 export async function getCfOAuthAccessToken(env, userId) {
-  const row = await fetchCloudflareOAuthRow(env, userId);
-  if (!row) return null;
+  const uid = trim(userId);
+  if (!uid) return null;
+  const resolved = await resolveCloudflareOAuthToken(env, uid, { nearExpirySeconds: 300 });
+  if (!resolved?.ok || !resolved.accessToken) return null;
+  return String(resolved.accessToken);
+}
 
-  const oauthRow = await getIntegrationOAuthRow(env, userId, 'cloudflare', '');
-  let accessToken = trim(oauthRow?.access_token);
-  const exp = row.expires_at != null ? Number(row.expires_at) : null;
-  const needsRefresh = exp != null && Number.isFinite(exp) && exp - nowSeconds() < REFRESH_BUFFER_SEC;
-
-  if ((!accessToken || needsRefresh) && row) {
-    const refreshed = await refreshCloudflareOAuthToken(env, userId, row);
-    if (refreshed) accessToken = refreshed;
-  }
-  return accessToken || null;
+/**
+ * @deprecated Prefer resolveCloudflareOAuthToken from user-oauth-token.js.
+ * Kept as a thin alias so older imports do not double-refresh.
+ */
+export async function refreshCloudflareOAuthToken(env, userId, _row) {
+  void _row;
+  const resolved = await resolveCloudflareOAuthToken(env, trim(userId), { nearExpirySeconds: 0 });
+  return resolved?.ok ? resolved.accessToken : null;
 }
 
 async function cfApiGet(token, path) {
@@ -175,8 +107,15 @@ export async function resolveCfImagesUploadContext(env, ctx = {}) {
   const wsRow = workspaceId ? await getAgentsamWorkspace(env, workspaceId) : null;
   let workspaceAccountId = explicitAccountId || trim(wsRow?.cloudflare_account_id);
 
-  const oauthToken = userId ? await getCfOAuthAccessToken(env, userId) : null;
+  const oauthResolved = userId
+    ? await resolveCloudflareOAuthToken(env, userId, { nearExpirySeconds: 300 })
+    : null;
+  const oauthToken = oauthResolved?.ok ? oauthResolved.accessToken : null;
+
   if (oauthToken) {
+    if (!workspaceAccountId && oauthResolved.accountId) {
+      workspaceAccountId = trim(oauthResolved.accountId);
+    }
     if (!workspaceAccountId) {
       const accounts = await listCfAccounts(oauthToken).catch(() => []);
       if (accounts.length === 1) workspaceAccountId = accounts[0].id;
@@ -200,20 +139,19 @@ export async function resolveCfImagesUploadContext(env, ctx = {}) {
         iam_hosted: false,
         accountId: workspaceAccountId,
         token: oauthToken,
-        accountHash,
-        source: 'user_oauth',
+        accountHash: accountHash || null,
+        source: 'oauth',
+        refreshed: !!oauthResolved?.refreshed,
+        expiresAt: oauthResolved?.expiresAt ?? null,
       };
     }
   }
 
   const platform = platformImagesCreds(env);
-  if (!platform) {
-    return {
-      ok: false,
-      error: 'cf_images_not_configured',
-      detail: 'Connect Cloudflare OAuth in Integrations or configure platform CF Images token',
-      iam_hosted: true,
-    };
-  }
-  return { ok: true, ...platform };
+  if (platform) return { ok: true, ...platform };
+  return {
+    ok: false,
+    error: oauthResolved && !oauthResolved.ok ? oauthResolved.code || 'cloudflare_oauth_unavailable' : 'cloudflare_images_not_configured',
+    iam_hosted: false,
+  };
 }

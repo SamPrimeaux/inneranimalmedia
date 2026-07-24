@@ -125,11 +125,19 @@ export function buildCfImageUrl(accountHash: string, id: string, variant = 'publ
 
 export type ImagesCapabilities = {
   cf_images?: boolean;
+  cf_oauth?: boolean;
+  cf_oauth_refreshed?: boolean;
+  cf_expires_at?: number | null;
   r2?: boolean;
+  r2_buckets?: string[];
   drive?: boolean;
+  drive_connected?: boolean;
+  drive_account_email?: string | null;
   account_hash?: string;
   accountHash?: string;
+  account_id?: string | null;
   images_transformed?: number | string | null;
+  source?: string | null;
 };
 
 export async function fetchImagesCapabilities(
