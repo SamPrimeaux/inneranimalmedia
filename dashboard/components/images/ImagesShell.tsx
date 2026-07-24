@@ -46,7 +46,10 @@ export function ImagesShell({ workspaceId }: ImagesShellProps) {
         style={{
           padding: '16px 24px 0',
           borderBottom: '1px solid var(--border-subtle)',
-          background: 'var(--bg-panel)',
+          // Was var(--bg-panel) while the shell root + right-rail sidebars use
+          // var(--bg-app) — that mismatch produced a visible L-shaped "panel
+          // band" across the top and down the right edge. One canvas color.
+          background: 'var(--bg-app)',
           flexShrink: 0,
         }}
       >
@@ -65,9 +68,11 @@ export function ImagesShell({ workspaceId }: ImagesShellProps) {
               style={{
                 margin: 0,
                 fontWeight: 600,
-                fontSize: 15,
-                letterSpacing: '0.02em',
+                fontSize: 20,
+                letterSpacing: '-0.01em',
                 color: 'var(--text-main)',
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
               }}
             >
               Hosted images
