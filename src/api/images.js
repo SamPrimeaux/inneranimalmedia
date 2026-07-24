@@ -2612,6 +2612,10 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     return handleListTags(url, env, authUser, identity);
   }
 
+  if (pathLower === '/api/images/variants/catalog' && method === 'GET') {
+    return handleVariantsCatalog(env);
+  }
+
   if (pathLower === '/api/images/resource-tags/keys' && method === 'GET') {
     const listed = await listAccountTagKeys(env);
     if (!listed.ok) return jsonResponse({ ok: false, error: listed.error, keys: [] }, listed.status || 502);
