@@ -5,9 +5,16 @@ export type ImageVariantGridProps = {
   variants: Record<string, string>;
   selected?: string | null;
   onSelect: (variantId: string) => void;
+  /**
+   * Real, account-fetched dimension labels (from /api/images/variants/catalog),
+   * keyed by variant id. Overrides the static NAMED_VARIANTS guesses when
+   * provided — named variants are account-specific, the static list is only a
+   * fallback for when the real catalog can't be loaded.
+   */
+  hints?: Record<string, string>;
 };
 
-const HINTS: Record<string, string> = Object.fromEntries(
+const DEFAULT_HINTS: Record<string, string> = Object.fromEntries(
   NAMED_VARIANTS.map((v) => [v.id, v.hint]),
 );
 
