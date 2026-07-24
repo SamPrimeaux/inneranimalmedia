@@ -4,6 +4,7 @@
  *
  * Product rule: AI creates drafts. Users create canon.
  * Default persist: false — drafts in drafts/images/{user_id}/ until POST /api/images/save.
+ * Exception: plural in-session asks ("three layouts", variations≥2) force persist:true.
  */
 
 import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';
@@ -749,7 +750,10 @@ export function handleDirectImageGenerationChatStream(env, ctx, opts) {
       };
       const sseParams = {
         prompt,
-        persist: false,
+        persist: imageGenerationShouldPersist(
+          { prompt, persist: opts.persist },
+          { userMessage: message, message },
+        ),
         ...(priorDraftUrl ? { image_url: priorDraftUrl } : {}),
         ...(priorGenerationId ? { prior_generation_id: priorGenerationId } : {}),
         ...(imageModel
@@ -1551,9 +1555,11 @@ export async function streamImageGenerationSse(emit, env, toolName, params, ctx 
   const tier = /** @type {ImageTier} */ (resolvedParams.tier || 'standard');
   const tierMatchedBy = String(resolvedParams.tier_matched_by || 'keyword');
   const isEdit = toolName === 'imgx_edit_image';
-  if (!imageGenerationShouldPersist(resolvedParams)) {
-    resolvedParams = { ...resolvedParams, persist: false };
-  }
+  const shouldPersist = imageGenerationShouldPersist(resolvedParams, {
+    userMessage: ctx.userMessage ?? ctx.message ?? null,
+    message: ctx.message ?? ctx.userMessage ?? null,
+  });
+  resolvedParams = { ...resolvedParams, persist: shouldPersist };
 
   const ws = ctx.workspaceId != null ? String(ctx.workspaceId).trim() : '';
   let providerGuess = 'workers_ai';

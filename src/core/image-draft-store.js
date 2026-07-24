@@ -786,12 +786,58 @@ export async function setImageProject(env, p) {
 }
 
 /**
- * @param {Record<string, unknown> | null | undefined} params
+ * Plural generative asks ("three layouts", "a few variations") must land as
+ * persisted library assets — not TTL drafts the user never sees after expiry.
+ * @param {string|null|undefined} text
  */
-export function imageGenerationShouldPersist(params) {
-  return (
+export function isPluralImageGenerationAsk(text) {
+  const m = String(text || '').trim();
+  if (!m) return false;
+  if (
+    /\b(two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(rough\s+|quick\s+|fast\s+)?(floor[- ]?plans?|layouts?|variations?|options?|concepts?|versions?|images?|sketches?|renders?|mockups?)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(a few|several|multiple)\s+(rough\s+|quick\s+|fast\s+)?(floor[- ]?plans?|layouts?|variations?|options?|concepts?|versions?|images?|sketches?|renders?|mockups?)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(generate|create|make|draw|render)\b[\s\S]{0,100}\b(two|three|four|five|six|\d+|a few|several|multiple)\b[\s\S]{0,60}\b(layouts?|variations?|options?|concepts?|floor[- ]?plans?|images?|sketches?|renders?|mockups?)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @param {Record<string, unknown> | null | undefined} params
+ * @param {{ userMessage?: string|null, message?: string|null }} [ctx]
+ */
+export function imageGenerationShouldPersist(params, ctx = {}) {
+  if (
     params?.persist === true ||
     params?.persist === 1 ||
     String(params?.persist || '').toLowerCase() === 'true'
-  );
+  ) {
+    return true;
+  }
+  const n = Number(params?.variations ?? params?.count ?? params?.n ?? 0);
+  if (Number.isFinite(n) && n >= 2) return true;
+  const blob = [
+    ctx.userMessage,
+    ctx.message,
+    params?.prompt,
+    params?.description,
+  ]
+    .filter((x) => x != null && String(x).trim())
+    .join('\n');
+  return isPluralImageGenerationAsk(blob);
 }

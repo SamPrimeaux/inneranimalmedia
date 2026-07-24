@@ -2345,9 +2345,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         } else if (isImageGenerationTool(call.name)) {
           const toolInput =
             call.input && typeof call.input === 'object' ? { ...call.input } : {};
-          if (!imageGenerationShouldPersist(toolInput)) {
-            toolInput.persist = false;
-          }
+          const turnUserMessage =
+            lastUserMessageText(conversationMessages) || userTextForForce || '';
+          // N layouts / variations in-session → permanent persist (not TTL draft).
+          toolInput.persist = imageGenerationShouldPersist(toolInput, {
+            userMessage: turnUserMessage,
+          });
           execResult = await abortScope.race(
             raceToolExecutionBudget(
               streamImageGenerationSse(emit, env, call.name, toolInput, {
@@ -2355,6 +2358,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 workspaceId,
                 tenantId,
                 userId,
+                conversationId: sessionId,
+                sessionId,
+                userMessage: turnUserMessage,
                 origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
               }),
               toolBudgetMs,
