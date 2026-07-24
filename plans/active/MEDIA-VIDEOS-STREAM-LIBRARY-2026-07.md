@@ -48,7 +48,7 @@ Rules:
 
 | Lane | Owner | Scope |
 |------|--------|--------|
-| **B** | **Claude** | Backend Stream CRUD + list merge APIs (`stream-api.js`, `/api/stream/*`, optional `stream-videos-api.js`) |
+| **B** | **Claude** | Backend Stream CRUD — **SHIPPED** `ce8c6225` / `965deb40` / `afc59ce8` (`stream-videos-api.js` + `stream-api.js` + mount) |
 | **D** | **Claude** | Veo LRO complete → Stream upload + durable `stream_uid` (after B from-url exists) |
 | **A** | **Cursor** | Shell: promote **Media ▾** below Work (Images · Videos submenu); Media shell + Overview UI |
 | **C** | **Cursor** | Stream detail tab UIs + R2/Drive panels (consumes B APIs only) |
