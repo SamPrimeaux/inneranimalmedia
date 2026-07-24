@@ -404,6 +404,7 @@ export function ImagesDetailPage() {
           variants={variantMap}
           selected={selectedVariant}
           onSelect={setSelectedVariant}
+          hints={realHints || undefined}
         />
       </div>
 
