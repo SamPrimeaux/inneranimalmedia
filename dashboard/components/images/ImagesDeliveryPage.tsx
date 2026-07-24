@@ -180,6 +180,70 @@ export function ImagesDeliveryPage() {
             </tbody>
           </table>
         </div>
+
+        <div style={{ marginTop: 28 }}>
+          <h2 style={{ margin: '0 0 8px', fontSize: 15, fontWeight: 600 }}>Responsive flexible URLs</h2>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            CF recommended max widths when you cannot use srcset: desktop 1920, tablet 960, mobile 640.
+            Copy flexible options (fit=scale-down + width + optional dpr=2 for retina).
+          </p>
+          <div
+            style={{
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 12,
+              overflow: 'hidden',
+              background: 'var(--bg-panel)',
+            }}
+          >
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-elevated)', textAlign: 'left' }}>
+                  <th style={th}>Preset</th>
+                  <th style={th}>Options segment</th>
+                  <th style={th} />
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: 'Desktop max', opts: 'fit=scale-down,width=1920' },
+                  { label: 'Tablet max', opts: 'fit=scale-down,width=960' },
+                  { label: 'Mobile max', opts: 'fit=scale-down,width=640' },
+                  { label: 'Retina thumb', opts: 'width=200,height=200,fit=cover,dpr=2' },
+                ].map((row) => {
+                  const example = accountHash
+                    ? `https://imagedelivery.net/${accountHash}/{id}/${row.opts}`
+                    : `…/{id}/${row.opts}`;
+                  return (
+                    <tr key={row.label} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                      <td style={td}>{row.label}</td>
+                      <td style={{ ...td, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                        {row.opts}
+                      </td>
+                      <td style={td}>
+                        <button
+                          type="button"
+                          aria-label={`Copy ${row.label}`}
+                          onClick={() => void copy(example)}
+                          style={{
+                            display: 'flex',
+                            padding: 4,
+                            borderRadius: 5,
+                            border: '1px solid var(--border-subtle)',
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Copy size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div

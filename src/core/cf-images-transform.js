@@ -98,10 +98,32 @@ export function assertTransformableMime(mime) {
 // Allowlist (§4 F5, §13.2 doc #2 — Key concepts vocabulary)
 // ---------------------------------------------------------------------------
 
-const FIT_VALUES = ['scale-down', 'contain', 'cover', 'crop', 'pad'];
+/** Named-variant create API fit enum (POST /images/v1/variants) — subset of Features. */
+export const VARIANT_FIT_VALUES = Object.freeze([
+  'scale-down',
+  'contain',
+  'cover',
+  'crop',
+  'pad',
+]);
+
+/**
+ * Full Features-doc fit modes for binding + flexible delivery.
+ * `squeeze` = CF doc name; CF dashboard sometimes labels this "Stretch".
+ * `aspect-crop` / `scale-up` are Features-doc modes (not in named-variant create schema).
+ */
+const FIT_VALUES = [
+  ...VARIANT_FIT_VALUES,
+  'aspect-crop',
+  'squeeze',
+  'scale-up',
+];
 const FLIP_VALUES = ['h', 'v', 'hv'];
 const GRAVITY_VALUES = ['auto', 'face', 'left', 'right', 'top', 'bottom', 'center'];
-const FORMAT_VALUES = ['auto', 'avif', 'webp', 'jpeg', 'png'];
+const FORMAT_VALUES = ['auto', 'avif', 'webp', 'jpeg', 'png', 'baseline-jpeg'];
+const UPSCALE_VALUES = ['interpolate', 'generate'];
+const SEGMENT_VALUES = ['foreground'];
+const METADATA_VALUES = ['keep', 'copyright', 'none'];
 
 /**
  * Allowlisted transform ops with clamp ranges. Anything not listed here is dropped, never
@@ -114,6 +136,7 @@ export const ALLOWED_TRANSFORM_OPS = Object.freeze({
   height: { type: 'int', min: 1, max: 4096 },
   fit: { type: 'enum', values: FIT_VALUES },
   gravity: { type: 'gravity' },
+  zoom: { type: 'float', min: 0, max: 1 },
   rotate: { type: 'int', min: 0, max: 359 },
   flip: { type: 'enum', values: FLIP_VALUES },
   brightness: { type: 'float', min: 0, max: 2 },
@@ -125,6 +148,12 @@ export const ALLOWED_TRANSFORM_OPS = Object.freeze({
   quality: { type: 'int', min: 1, max: 100 },
   format: { type: 'enum', values: FORMAT_VALUES },
   anim: { type: 'bool' },
+  background: { type: 'string' },
+  dpr: { type: 'float', min: 1, max: 2 },
+  upscale: { type: 'enum', values: UPSCALE_VALUES },
+  segment: { type: 'enum', values: SEGMENT_VALUES },
+  metadata: { type: 'enum', values: METADATA_VALUES },
+  trim: { type: 'trim' },
 });
 
 /**
@@ -135,7 +164,11 @@ export const ALLOWED_TRANSFORM_OPS = Object.freeze({
  * @returns {{ ops: Record<string, unknown>, errors: string[], dropped: string[] }}
  */
 export function clampTransformOps(raw) {
-  const input = raw && typeof raw === 'object' ? raw : {};
+  const input = raw && typeof raw === 'object' ? { ...raw } : {};
+  // Dashboard label "stretch" → Features-doc `squeeze` (before enum validation).
+  if (typeof input.fit === 'string' && input.fit.toLowerCase().trim() === 'stretch') {
+    input.fit = 'squeeze';
+  }
   const errors = [];
   const ops = {};
 
@@ -193,6 +226,18 @@ export function clampTransformOps(raw) {
         }
         break;
       }
+      case 'string': {
+        const s = String(val).trim();
+        if (!s) break;
+        // Cap CSS color / hex length — never pass unbounded strings to the binding.
+        ops[key] = s.slice(0, 64);
+        break;
+      }
+      case 'trim': {
+        const trimmed = clampTrim(val, errors);
+        if (trimmed) ops.trim = trimmed;
+        break;
+      }
       default:
         break;
     }
@@ -200,6 +245,41 @@ export function clampTransformOps(raw) {
 
   const dropped = Object.keys(input).filter((k) => !(k in ALLOWED_TRANSFORM_OPS));
   return { ops, errors, dropped };
+}
+
+/**
+ * @param {unknown} val
+ * @param {string[]} errors
+ * @returns {Record<string, number>|null}
+ */
+function clampTrim(val, errors) {
+  if (val == null || val === '') return null;
+  if (typeof val === 'string') {
+    const parts = val.split(';').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 4) {
+      const [top, right, bottom, left] = parts.map((p) => Number(p));
+      if ([top, right, bottom, left].every((n) => Number.isFinite(n))) {
+        return { top, right, bottom, left };
+      }
+    }
+    errors.push('trim: expected object or "top;right;bottom;left"');
+    return null;
+  }
+  if (typeof val !== 'object') {
+    errors.push('trim: invalid value');
+    return null;
+  }
+  const out = {};
+  for (const k of ['top', 'right', 'bottom', 'left', 'width', 'height']) {
+    if (!(k in val)) continue;
+    const n = Number(val[k]);
+    if (!Number.isFinite(n)) {
+      errors.push(`trim.${k}: expected a number`);
+      continue;
+    }
+    out[k] = n >= 0 && n <= 1 ? Math.round(n * 1000) / 1000 : Math.max(0, Math.round(n));
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /**
@@ -216,12 +296,20 @@ export function buildTransformSteps(ops) {
   if (ops.flip != null) orient.flip = ops.flip;
   if (Object.keys(orient).length) steps.push(orient);
 
+  if (ops.trim != null) steps.push({ trim: ops.trim });
+
   const resize = {};
   if (ops.width != null) resize.width = ops.width;
   if (ops.height != null) resize.height = ops.height;
   if (ops.fit != null) resize.fit = ops.fit;
   if (ops.gravity != null) resize.gravity = ops.gravity;
+  if (ops.zoom != null) resize.zoom = ops.zoom;
+  if (ops.dpr != null) resize.dpr = ops.dpr;
+  if (ops.background != null) resize.background = ops.background;
+  if (ops.upscale != null) resize.upscale = ops.upscale;
   if (Object.keys(resize).length) steps.push(resize);
+
+  if (ops.segment != null) steps.push({ segment: ops.segment });
 
   const tone = {};
   if (ops.brightness != null) tone.brightness = ops.brightness;
@@ -248,8 +336,10 @@ export function buildTransformSteps(ops) {
 const DELIVERY_KEY_ORDER = [
   'width',
   'height',
+  'dpr',
   'fit',
   'gravity',
+  'zoom',
   'rotate',
   'flip',
   'brightness',
@@ -261,6 +351,10 @@ const DELIVERY_KEY_ORDER = [
   'quality',
   'format',
   'anim',
+  'background',
+  'upscale',
+  'segment',
+  'metadata',
 ];
 
 /**
@@ -274,9 +368,19 @@ export function buildDeliveryOptions(rawOps) {
   for (const key of DELIVERY_KEY_ORDER) {
     if (ops[key] == null) continue;
     if (key === 'gravity' && typeof ops[key] === 'object') {
-      parts.push(`gravity=${ops[key].x},${ops[key].y}`);
+      parts.push(`gravity=${ops[key].x}x${ops[key].y}`);
     } else {
       parts.push(`${key}=${ops[key]}`);
+    }
+  }
+  if (ops.trim && typeof ops.trim === 'object') {
+    const t = ops.trim;
+    if (t.top != null && t.right != null && t.bottom != null && t.left != null) {
+      parts.push(`trim=${t.top};${t.right};${t.bottom};${t.left}`);
+    } else {
+      for (const k of ['top', 'right', 'bottom', 'left', 'width', 'height']) {
+        if (t[k] != null) parts.push(`trim.${k}=${t[k]}`);
+      }
     }
   }
   return parts.join(',');
@@ -338,7 +442,8 @@ export async function applyBindingPipeline(env, source, rawOps, opts = {}) {
   }
 
   const formatKey = ops.format && ops.format !== 'auto' ? ops.format : normalizeDefaultFormat(opts.defaultFormat);
-  const outputOpts = { format: `image/${formatKey}` };
+  const mimeFormat = formatKey === 'baseline-jpeg' ? 'jpeg' : formatKey;
+  const outputOpts = { format: `image/${mimeFormat}` };
   if (ops.quality != null) outputOpts.quality = ops.quality;
   if (ops.anim != null) outputOpts.anim = ops.anim;
 
@@ -348,7 +453,8 @@ export async function applyBindingPipeline(env, source, rawOps, opts = {}) {
 
 function normalizeDefaultFormat(fmt) {
   const f = String(fmt || 'webp').replace(/^image\//, '');
-  return FORMAT_VALUES.includes(f) && f !== 'auto' ? f : 'webp';
+  if (f === 'baseline-jpeg') return 'jpeg';
+  return FORMAT_VALUES.includes(f) && f !== 'auto' && f !== 'baseline-jpeg' ? f : 'webp';
 }
 
 // ---------------------------------------------------------------------------
@@ -535,6 +641,59 @@ export async function listCfImageVariants(accountId, apiToken) {
     })).filter((v) => v.id);
   }
   return [];
+}
+
+/**
+ * Creates an account-level named variant via Cloudflare Images API.
+ * Schema: https://developers.cloudflare.com/api/resources/images/subresources/v1/subresources/variants/methods/create/
+ * Options are limited to width/height/fit/metadata (not the full Features catalog).
+ *
+ * @param {string} accountId
+ * @param {string} apiToken
+ * @param {{ id: string, width?: number, height?: number, fit?: string, metadata?: string, neverRequireSignedURLs?: boolean }} body
+ */
+export async function createCfImageVariant(accountId, apiToken, body) {
+  const id = String(body?.id || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '')
+    .slice(0, 99);
+  if (!id) throw new TransformValidationError('Variant id is required');
+
+  const fitRaw = String(body?.fit || 'scale-down').toLowerCase().trim();
+  const fit = VARIANT_FIT_VALUES.includes(fitRaw) ? fitRaw : 'scale-down';
+  const metadataRaw = String(body?.metadata || 'none').toLowerCase().trim();
+  const metadata = METADATA_VALUES.includes(metadataRaw) ? metadataRaw : 'none';
+
+  const options = { fit, metadata };
+  const w = Number(body?.width);
+  const h = Number(body?.height);
+  if (Number.isFinite(w) && w >= 1) options.width = Math.min(4096, Math.round(w));
+  if (Number.isFinite(h) && h >= 1) options.height = Math.min(4096, Math.round(h));
+  if (!options.width && !options.height) {
+    throw new TransformValidationError('Variant requires width and/or height');
+  }
+
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/images/v1/variants`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id,
+        options,
+        neverRequireSignedURLs: body?.neverRequireSignedURLs === true,
+      }),
+    },
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.success) {
+    throw new Error(data?.errors?.[0]?.message || `Failed to create variant (${res.status})`);
+  }
+  return data.result?.variant || data.result || { id, options };
 }
 
 /**

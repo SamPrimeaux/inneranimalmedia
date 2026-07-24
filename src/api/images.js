@@ -69,6 +69,7 @@ import {
   batchPatchCfImageMeta,
   batchUploadToCfImages,
   buildFlexibleDeliveryUrl,
+  createCfImageVariant,
   listCfImageVariants,
   runCfImagesBatch,
 } from '../core/cf-images-transform.js';
@@ -1554,6 +1555,33 @@ async function handleVariantsCatalog(env) {
   }
 }
 
+/** POST /api/images/variants — create account-level named variant (CF Images Write). */
+async function handleCreateVariant(request, env) {
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+  if (!accountId || !token) {
+    return jsonResponse({ ok: false, error: 'Cloudflare Images credentials not configured' }, 503);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  try {
+    const variant = await createCfImageVariant(accountId, token, body || {});
+    _variantsCatalogCache = null; // force catalog refresh
+    return jsonResponse({ ok: true, variant });
+  } catch (e) {
+    if (e instanceof TransformValidationError) {
+      return jsonResponse({ ok: false, error: e.message }, 400);
+    }
+    return jsonResponse({ ok: false, error: e?.message || 'Failed to create variant' }, 502);
+  }
+}
+
 async function handleListTags(url, env, authUser, identity) {
   const scope = await resolveScope(
     env,
@@ -2614,6 +2642,10 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
 
   if (pathLower === '/api/images/variants/catalog' && method === 'GET') {
     return handleVariantsCatalog(env);
+  }
+
+  if (pathLower === '/api/images/variants' && method === 'POST') {
+    return handleCreateVariant(request, env);
   }
 
   if (pathLower === '/api/images/resource-tags/keys' && method === 'GET') {

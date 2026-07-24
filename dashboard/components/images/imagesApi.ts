@@ -65,12 +65,46 @@ export function imagesVariantsCatalogUrl() {
   return '/api/images/variants/catalog';
 }
 
+export function imagesVariantsCreateUrl() {
+  return '/api/images/variants';
+}
+
 export type CfVariantDef = {
   id: string;
   width: number | null;
   height: number | null;
   fit: string | null;
 };
+
+export type CreateVariantBody = {
+  id: string;
+  width?: number;
+  height?: number;
+  fit?: string;
+  metadata?: string;
+  neverRequireSignedURLs?: boolean;
+};
+
+/** Creates an account-level named variant via CF Images API (proxied). */
+export async function createNamedVariant(
+  body: CreateVariantBody,
+): Promise<{ ok: boolean; variant?: CfVariantDef; error?: string }> {
+  try {
+    const r = await fetch(imagesVariantsCreateUrl(), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error || !d.ok) {
+      return { ok: false, error: d.error || `Create failed (${r.status})` };
+    }
+    return { ok: true, variant: d.variant };
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
 
 /**
  * Fetches the real variant catalog. Returns null (not an empty array) on

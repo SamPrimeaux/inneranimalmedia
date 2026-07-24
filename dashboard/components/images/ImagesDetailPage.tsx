@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ChevronRight,
   Download,
   Pencil,
   Share2,
@@ -11,6 +10,7 @@ import { cloudflareImageUrl } from '../../src/lib/cloudflareImageUrl';
 import { ImageShareModal } from './ImageShareModal';
 import { ImageTagPicker } from './ImageTagPicker';
 import { ImageVariantGrid } from './ImageVariantGrid';
+import { Breadcrumb } from './Breadcrumb';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
 import { NAMED_VARIANTS } from './imagesRegistry';
@@ -303,27 +303,13 @@ export function ImagesDetailPage() {
 
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 24px 32px' }}>
-      <nav
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: 12,
-          color: 'var(--text-muted)',
-          marginBottom: 14,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Link to="/dashboard/images/storage" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
-          Images
-        </Link>
-        <ChevronRight size={12} />
-        <Link to="/dashboard/images/storage" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>
-          Storage
-        </Link>
-        <ChevronRight size={12} />
-        <span style={{ color: 'var(--text-main)' }}>{img.filename || img.id}</span>
-      </nav>
+      <Breadcrumb
+        items={[
+          { label: 'Hosted images', to: '/dashboard/images/storage', icon: true },
+          { label: 'Storage', to: '/dashboard/images/storage' },
+          { label: img.filename || img.id },
+        ]}
+      />
 
       {/*
         Sticky title+action row — CF keeps Export/Edit/Delete visible while the

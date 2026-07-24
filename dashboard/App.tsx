@@ -126,6 +126,7 @@ import {
   PREF_SHOW_STATUS_BAR,
   readShellBoolPref,
   showDashboardStatusBar,
+  showFullIdeTopbar,
   SHELL_PREF_CHANGE_EVENT,
 } from './config/shellChrome';
 import {
@@ -584,6 +585,10 @@ const App: React.FC = () => {
   );
   const isAgentEditorWorkbench = useMemo(
     () => isAgentEditorPath(location.pathname),
+    [location.pathname],
+  );
+  const fullIdeTopbar = useMemo(
+    () => showFullIdeTopbar(location.pathname),
     [location.pathname],
   );
   const editorDevContext = useMemo(
@@ -4863,7 +4868,8 @@ const App: React.FC = () => {
               </button>
           </div>
 
-          {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
+          {/* Unified search (Cmd+K) — agent/editor only; product pages use compact chrome */}
+          {fullIdeTopbar ? (
           <div className="iam-topbar-desktop-only flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
               <UnifiedSearchBar
                 workspaceLabel={editorDevContext ? workspaceDisplayLine : userProfileLabel}
@@ -4890,9 +4896,13 @@ const App: React.FC = () => {
                 onConnectionMenuAction={handleConnectionMenuAction}
               />
           </div>
+          ) : (
+          <div className="flex-1 min-w-0" aria-hidden="true" />
+          )}
 
-          {/* Right layout cluster — mobile: Search icon + More; desktop adds terminal/globe/etc. */}
+          {/* Right layout cluster — product: agent toggle; editor: full IDE tools */}
           <div className="flex gap-0.5 items-center mr-1 shrink-0 max-phone:ml-auto">
+              {fullIdeTopbar ? (
               <div className="iam-topbar-mobile-only hidden max-phone:block shrink-0">
                 <UnifiedSearchBar
                   workspaceLabel={editorDevContext ? workspaceDisplayLine : userProfileLabel}
@@ -4920,7 +4930,9 @@ const App: React.FC = () => {
                   onConnectionMenuAction={handleConnectionMenuAction}
                 />
               </div>
+              ) : null}
 
+              {fullIdeTopbar ? (
               <button
                   type="button"
                   title="Open Browser"
@@ -4931,17 +4943,17 @@ const App: React.FC = () => {
               >
                   <Globe size={15} strokeWidth={1.75} />
               </button>
+              ) : null}
               <button
                   type="button"
                   title="Toggle agent panel"
-                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-muted hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={onChatLayoutToggle}
               >
                   {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
               </button>
 
-
-
+              {fullIdeTopbar ? (
               <button
                   type="button"
                   title="Terminal (Cmd+J)"
@@ -4956,6 +4968,8 @@ const App: React.FC = () => {
               >
                   <TermIcon size={15} strokeWidth={1.75} />
               </button>
+              ) : null}
+              {fullIdeTopbar ? (
               <div className="iam-topbar-desktop-only relative hidden tablet-up:block" ref={topChromeMoreRef}>
                   <button
                       type="button"
@@ -5005,6 +5019,7 @@ const App: React.FC = () => {
                       </div>
                   )}
               </div>
+              ) : null}
           </div>
       </div>
       </header>

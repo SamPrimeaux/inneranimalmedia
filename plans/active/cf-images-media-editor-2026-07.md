@@ -705,3 +705,41 @@ Documented in `.env.cloudflare.example`. Do **not** invent a second OAuth refres
 | QC-26 | Tag add/remove dual-writes D1 metadata + best-effort CF Resource Tagging (failure does not roll back D1) | A |
 
 **Also update §13.4 scorecard** — append QC-23…QC-26 rows.
+
+---
+
+## 17. CF Features coverage matrix (2026-07-24)
+
+SSOT for whether IAM Media Library exposes each [Images Features](https://developers.cloudflare.com/images/optimization/features/) parameter. Verified against `ALLOWED_TRANSFORM_OPS` / Edit UI / Delivery / named-variant create.
+
+| Param | Allowlist | Edit UI | Delivery / flexible | Named variant create | Notes |
+|-------|-----------|---------|---------------------|----------------------|-------|
+| anim | ✅ | ✅ Toggle | ✅ | — | output opt on binding |
+| background | ✅ | ✅ | ✅ | — | pad fill |
+| blur | ✅ | ✅ | ✅ | preview +Add only | create API schema has no blur |
+| border | ❌ | ❌ | ❌ | — | Workers-only draw-adjacent; Phase later |
+| brightness | ✅ | ✅ | ✅ | — | |
+| compression | ❌ | ❌ | ❌ | — | not recommended |
+| contrast | ✅ | ✅ | ✅ | — | |
+| dpr | ✅ | ✅ | ✅ + presets | — | Delivery responsive copy |
+| fit (+ aspect-crop, squeeze, scale-up) | ✅ | ✅ | ✅ | 5 API values only | create: scale-down/contain/cover/crop/pad |
+| flip | ✅ | ✅ | ✅ | — | |
+| format (+ baseline-jpeg) | ✅ | ✅ | ✅ | — | json format N/A for binding output |
+| gamma | ✅ | ✅ | ✅ | — | |
+| gravity (+ {x,y}) | ✅ | ✅ | ✅ | — | |
+| height / width | ✅ | ✅ | ✅ | ✅ | width=auto / wbreakpoints still URL-only Gap |
+| metadata | ✅ delivery | — | ✅ | ✅ | |
+| onerror | N/A | — | — | — | remote `/cdn-cgi` only |
+| quality | ✅ | ✅ | ✅ | — | perceptual labels Gap |
+| rotate | ✅ | ✅ | ✅ | — | |
+| saturation | ✅ | ✅ | ✅ | — | |
+| segment | ✅ | ✅ Toggle | ✅ | — | Workers AI |
+| sharpen | ✅ | ✅ | ✅ | — | |
+| scq | N/A | — | — | — | Chromium URL + client hints |
+| trim | ✅ | ✅ | ✅ | — | |
+| upscale | ✅ | ✅ | ✅ | — | with contain/cover/scale-up/pad |
+| zoom | ✅ | ✅ (w/ face) | ✅ | — | |
+| watermark `.draw()` | pipeline | ✅ Toggle | — | UI only (account setting) | |
+
+**Still Gap (explicit):** `border`, `compression`, `width=auto`/`wbreakpoints`, perceptual quality enums, remote `/cdn-cgi` + `onerror` + `scq`, shell “title scrolls / tabs sticky” across all child scroll containers.
+

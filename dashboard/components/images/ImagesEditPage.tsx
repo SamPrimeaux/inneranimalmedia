@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, Link as LinkIcon } from 'lucide-react';
+import { Link as LinkIcon } from 'lucide-react';
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
 import { Dropdown, type DropdownOption } from './Dropdown';
+import { Breadcrumb } from './Breadcrumb';
+import { Toggle } from './Toggle';
 import {
   imagesDetailUrl,
   imagesPreviewUrl,
@@ -11,20 +13,17 @@ import {
   useImagesToast,
 } from './imagesApi';
 
-const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/binding/';
+const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/features/';
 
-/**
- * See the fit-options note in ImagesDeliveryVariantCreatePage.tsx — scale-down,
- * contain, cover, crop, pad, scale-up are documented; stretch matches the CF
- * dashboard's own dropdown but is unconfirmed against the documented API schema.
- */
+/** Binding + flexible delivery fit modes (Features doc). Named-variant create API is a subset. */
 const FIT_OPTIONS: DropdownOption[] = [
   { value: 'scale-down', label: 'Scale down' },
   { value: 'contain', label: 'Contain' },
   { value: 'cover', label: 'Cover' },
   { value: 'crop', label: 'Crop' },
   { value: 'pad', label: 'Pad' },
-  { value: 'stretch', label: 'Stretch' },
+  { value: 'aspect-crop', label: 'Aspect crop' },
+  { value: 'squeeze', label: 'Squeeze (stretch)' },
   { value: 'scale-up', label: 'Scale up' },
 ];
 
@@ -32,19 +31,55 @@ const FORMAT_OPTIONS: DropdownOption[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'webp', label: 'WebP' },
   { value: 'jpeg', label: 'JPEG' },
+  { value: 'baseline-jpeg', label: 'Baseline JPEG' },
   { value: 'png', label: 'PNG' },
   { value: 'avif', label: 'AVIF' },
+];
+
+const GRAVITY_OPTIONS: DropdownOption[] = [
+  { value: 'auto', label: 'Auto (saliency)' },
+  { value: 'face', label: 'Face' },
+  { value: 'center', label: 'Center' },
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+  { value: 'top', label: 'Top' },
+  { value: 'bottom', label: 'Bottom' },
+];
+
+const FLIP_OPTIONS: DropdownOption[] = [
+  { value: '', label: 'None' },
+  { value: 'h', label: 'Horizontal' },
+  { value: 'v', label: 'Vertical' },
+  { value: 'hv', label: 'Both' },
+];
+
+const UPSCALE_OPTIONS: DropdownOption[] = [
+  { value: 'interpolate', label: 'Interpolate (bicubic)' },
+  { value: 'generate', label: 'Generate (AI / ESRGAN)' },
 ];
 
 type OpsState = {
   width: string;
   height: string;
   fit: string;
+  gravity: string;
+  zoom: string;
+  dpr: string;
+  background: string;
   brightness: string;
   contrast: string;
+  saturation: string;
+  gamma: string;
+  blur: string;
+  sharpen: string;
   rotate: string;
+  flip: string;
   format: string;
   quality: string;
+  upscale: string;
+  trim: string;
+  segment: boolean;
+  anim: boolean;
   watermark: boolean;
 };
 
@@ -52,24 +87,68 @@ const DEFAULT_OPS: OpsState = {
   width: '',
   height: '',
   fit: 'scale-down',
+  gravity: 'auto',
+  zoom: '0',
+  dpr: '1',
+  background: '',
   brightness: '1',
   contrast: '1',
+  saturation: '1',
+  gamma: '1',
+  blur: '0',
+  sharpen: '0',
   rotate: '0',
+  flip: '',
   format: 'webp',
   quality: '85',
+  upscale: 'interpolate',
+  trim: '',
+  segment: false,
+  anim: true,
   watermark: false,
 };
 
-function opsToRecord(ops: OpsState): Record<string, string | number | boolean> {
-  const out: Record<string, string | number | boolean> = {};
+function opsToRecord(ops: OpsState): Record<string, string | number | boolean | Record<string, number>> {
+  const out: Record<string, string | number | boolean | Record<string, number>> = {};
   if (ops.width) out.width = Number(ops.width);
   if (ops.height) out.height = Number(ops.height);
   if (ops.fit) out.fit = ops.fit;
+  if (ops.gravity && (ops.fit === 'cover' || ops.fit === 'crop' || ops.fit === 'aspect-crop')) {
+    out.gravity = ops.gravity;
+  }
+  if (ops.gravity === 'face' && ops.zoom && ops.zoom !== '0') out.zoom = Number(ops.zoom);
+  if (ops.dpr && ops.dpr !== '1') out.dpr = Number(ops.dpr);
+  if (ops.background.trim()) out.background = ops.background.trim();
   if (ops.brightness !== '' && ops.brightness !== '1') out.brightness = Number(ops.brightness);
   if (ops.contrast !== '' && ops.contrast !== '1') out.contrast = Number(ops.contrast);
+  if (ops.saturation !== '' && ops.saturation !== '1') out.saturation = Number(ops.saturation);
+  if (ops.gamma !== '' && ops.gamma !== '1' && ops.gamma !== '0') out.gamma = Number(ops.gamma);
+  if (ops.blur && ops.blur !== '0') out.blur = Number(ops.blur);
+  if (ops.sharpen && ops.sharpen !== '0') out.sharpen = Number(ops.sharpen);
   if (ops.rotate && ops.rotate !== '0') out.rotate = Number(ops.rotate);
+  if (ops.flip) out.flip = ops.flip;
   if (ops.format && ops.format !== 'auto') out.format = ops.format;
   if (ops.quality) out.quality = Number(ops.quality);
+  if (
+    ops.upscale &&
+    ops.upscale !== 'interpolate' &&
+    (ops.fit === 'contain' || ops.fit === 'cover' || ops.fit === 'scale-up' || ops.fit === 'pad')
+  ) {
+    out.upscale = ops.upscale;
+  }
+  if (ops.trim.trim()) {
+    const parts = ops.trim.split(';').map((p) => p.trim());
+    if (parts.length === 4 && parts.every((p) => p !== '' && Number.isFinite(Number(p)))) {
+      out.trim = {
+        top: Number(parts[0]),
+        right: Number(parts[1]),
+        bottom: Number(parts[2]),
+        left: Number(parts[3]),
+      };
+    }
+  }
+  if (ops.segment) out.segment = 'foreground';
+  if (!ops.anim) out.anim = false;
   return out;
 }
 
@@ -106,10 +185,15 @@ export function ImagesEditPage() {
   const previewQueryUrl = useMemo(() => {
     if (!id) return '';
     const record = opsToRecord(ops);
-    if (ops.watermark) {
-      // watermark is a query flag on preview-url, not an op key
+    const flat: Record<string, string | number | boolean> = {};
+    for (const [k, v] of Object.entries(record)) {
+      if (k === 'trim' && typeof v === 'object') {
+        flat.trim = `${v.top};${v.right};${v.bottom};${v.left}`;
+      } else if (typeof v !== 'object') {
+        flat[k] = v as string | number | boolean;
+      }
     }
-    const base = imagesPreviewUrl(id, record, workspaceId);
+    const base = imagesPreviewUrl(id, flat, workspaceId);
     if (!ops.watermark) return base;
     return base.includes('?') ? `${base}&watermark=1` : `${base}?watermark=1`;
   }, [id, ops, workspaceId]);
@@ -119,8 +203,6 @@ export function ImagesEditPage() {
     let cancelled = false;
     const t = setTimeout(() => {
       setPreviewBusy(true);
-      // Streamed binding preview: use the URL directly as img src (credentials via same-origin).
-      // If mode=delivery JSON is preferred later, branch here.
       const src = previewQueryUrl;
       const img = new Image();
       img.onload = () => {
@@ -130,10 +212,7 @@ export function ImagesEditPage() {
         }
       };
       img.onerror = () => {
-        if (!cancelled) {
-          // Keep prior preview; surface soft fail
-          setPreviewBusy(false);
-        }
+        if (!cancelled) setPreviewBusy(false);
       };
       img.src = src;
     }, 280);
@@ -143,11 +222,10 @@ export function ImagesEditPage() {
     };
   }, [id, previewQueryUrl]);
 
-  const set =
+  const setNum =
     (key: keyof OpsState) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-      setOps((p) => ({ ...p, [key]: val }));
+      setOps((p) => ({ ...p, [key]: e.target.value }));
     };
 
   const onSave = async () => {
@@ -194,7 +272,7 @@ export function ImagesEditPage() {
     width: '100%',
     boxSizing: 'border-box',
     padding: '8px 10px',
-    borderRadius: 8,
+    borderRadius: 6,
     border: '1px solid var(--border-subtle)',
     background: 'var(--bg-elevated)',
     color: 'var(--text-main)',
@@ -203,27 +281,43 @@ export function ImagesEditPage() {
     outline: 'none',
   };
 
+  const card: React.CSSProperties = {
+    padding: 20,
+    borderRadius: 6,
+    border: '1px solid var(--border-subtle)',
+    background: 'var(--bg-panel)',
+  };
+
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    margin: '16px 0 10px',
+  };
+
   if (!id) {
     return <div style={{ padding: 24, color: '#f87171' }}>Missing image id</div>;
   }
 
+  const showGravity = ops.fit === 'cover' || ops.fit === 'crop' || ops.fit === 'aspect-crop';
+  const showUpscale =
+    ops.fit === 'contain' || ops.fit === 'cover' || ops.fit === 'scale-up' || ops.fit === 'pad';
+
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 24px 32px' }}>
-      <Link
-        to={`/dashboard/images/${encodeURIComponent(id)}`}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-          fontSize: 12,
-          color: 'var(--text-muted)',
-          textDecoration: 'none',
-          marginBottom: 14,
-        }}
-      >
-        <ChevronLeft size={14} />
-        {filename || id}
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: 'Hosted images', to: '/dashboard/images/storage', icon: true },
+          { label: 'Storage', to: '/dashboard/images/storage' },
+          {
+            label: filename || id,
+            to: `/dashboard/images/${encodeURIComponent(id)}`,
+          },
+          { label: 'Edit' },
+        ]}
+      />
 
       <div
         style={{
@@ -242,7 +336,7 @@ export function ImagesEditPage() {
             onClick={() => navigate(`/dashboard/images/${encodeURIComponent(id)}`)}
             style={{
               padding: '8px 12px',
-              borderRadius: 8,
+              borderRadius: 6,
               border: '1px solid var(--border-subtle)',
               background: 'var(--bg-elevated)',
               color: 'var(--text-muted)',
@@ -259,7 +353,7 @@ export function ImagesEditPage() {
             onClick={() => void onSave()}
             style={{
               padding: '8px 14px',
-              borderRadius: 8,
+              borderRadius: 6,
               border: 'none',
               background: 'var(--solar-cyan)',
               color: '#000',
@@ -279,7 +373,7 @@ export function ImagesEditPage() {
           style={{
             marginBottom: 14,
             padding: '10px 12px',
-            borderRadius: 8,
+            borderRadius: 6,
             border: '1px solid color-mix(in srgb, var(--solar-cyan) 40%, var(--border-subtle))',
             background: 'color-mix(in srgb, var(--solar-cyan) 8%, var(--bg-panel))',
             fontSize: 12,
@@ -302,34 +396,47 @@ export function ImagesEditPage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(280px, 400px) 1fr',
+          gridTemplateColumns: 'minmax(280px, 420px) 1fr',
           gap: 24,
           alignItems: 'start',
         }}
       >
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 12,
-            border: '1px solid var(--border-subtle)',
-            background: 'var(--bg-panel)',
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Configuration</div>
+        <div style={card}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Configuration</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.45 }}>
+            Cloudflare Images Features params via Workers binding. Preview updates live.
+          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div style={sectionTitle}>Size</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label style={fieldLabel}>Width</label>
-              <input type="number" min={1} max={4096} value={ops.width} onChange={set('width')} style={input} placeholder="auto" />
+              <input
+                type="number"
+                min={1}
+                max={4096}
+                value={ops.width}
+                onChange={setNum('width')}
+                style={input}
+                placeholder="auto"
+              />
             </div>
             <div>
               <label style={fieldLabel}>Height</label>
-              <input type="number" min={1} max={4096} value={ops.height} onChange={set('height')} style={input} placeholder="auto" />
+              <input
+                type="number"
+                min={1}
+                max={4096}
+                value={ops.height}
+                onChange={setNum('height')}
+                style={input}
+                placeholder="auto"
+              />
             </div>
           </div>
 
           <label style={fieldLabel}>Fit</label>
-          <div style={{ marginBottom: 14 }}>
+          <div style={{ marginBottom: 12 }}>
             <Dropdown
               value={ops.fit}
               options={FIT_OPTIONS}
@@ -337,7 +444,83 @@ export function ImagesEditPage() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          {showGravity ? (
+            <>
+              <label style={fieldLabel}>Gravity</label>
+              <div style={{ marginBottom: 12 }}>
+                <Dropdown
+                  value={ops.gravity}
+                  options={GRAVITY_OPTIONS}
+                  onChange={(v) => setOps((p) => ({ ...p, gravity: v }))}
+                />
+              </div>
+              {ops.gravity === 'face' ? (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={fieldLabel}>Face zoom (0–1)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={ops.zoom}
+                    onChange={setNum('zoom')}
+                    style={input}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={fieldLabel}>DPR (1–2)</label>
+              <input
+                type="number"
+                min={1}
+                max={2}
+                step={0.1}
+                value={ops.dpr}
+                onChange={setNum('dpr')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Background (pad)</label>
+              <input
+                value={ops.background}
+                onChange={setNum('background')}
+                style={input}
+                placeholder="#FFFFFF or red"
+              />
+            </div>
+          </div>
+
+          {showUpscale ? (
+            <>
+              <label style={fieldLabel}>Upscale</label>
+              <div style={{ marginBottom: 12 }}>
+                <Dropdown
+                  value={ops.upscale}
+                  options={UPSCALE_OPTIONS}
+                  onChange={(v) => setOps((p) => ({ ...p, upscale: v }))}
+                />
+              </div>
+            </>
+          ) : null}
+
+          <label style={fieldLabel}>Trim (top;right;bottom;left)</label>
+          <input
+            value={ops.trim}
+            onChange={setNum('trim')}
+            style={{ ...input, marginBottom: 4 }}
+            placeholder="e.g. 0.1;0.1;0.1;0.1"
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Pixels or 0–1 fractions. Applied before resize.
+          </div>
+
+          <div style={sectionTitle}>Tone</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
             <div>
               <label style={fieldLabel}>Brightness</label>
               <input
@@ -346,7 +529,7 @@ export function ImagesEditPage() {
                 max={2}
                 step={0.05}
                 value={ops.brightness}
-                onChange={set('brightness')}
+                onChange={setNum('brightness')}
                 style={input}
               />
             </div>
@@ -358,22 +541,83 @@ export function ImagesEditPage() {
                 max={2}
                 step={0.05}
                 value={ops.contrast}
-                onChange={set('contrast')}
+                onChange={setNum('contrast')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Saturation</label>
+              <input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={ops.saturation}
+                onChange={setNum('saturation')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Gamma</label>
+              <input
+                type="number"
+                min={0}
+                max={2}
+                step={0.05}
+                value={ops.gamma}
+                onChange={setNum('gamma')}
                 style={input}
               />
             </div>
           </div>
 
-          <label style={fieldLabel}>Rotate</label>
-          <input
-            type="number"
-            min={0}
-            max={359}
-            value={ops.rotate}
-            onChange={set('rotate')}
-            style={{ ...input, marginBottom: 14 }}
-          />
+          <div style={sectionTitle}>Filters & orient</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={fieldLabel}>Blur (0–250)</label>
+              <input
+                type="number"
+                min={0}
+                max={250}
+                value={ops.blur}
+                onChange={setNum('blur')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Sharpen (0–10)</label>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={ops.sharpen}
+                onChange={setNum('sharpen')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Rotate</label>
+              <input
+                type="number"
+                min={0}
+                max={359}
+                value={ops.rotate}
+                onChange={setNum('rotate')}
+                style={input}
+              />
+            </div>
+            <div>
+              <label style={fieldLabel}>Flip</label>
+              <Dropdown
+                value={ops.flip}
+                options={FLIP_OPTIONS}
+                onChange={(v) => setOps((p) => ({ ...p, flip: v }))}
+              />
+            </div>
+          </div>
 
+          <div style={sectionTitle}>Output</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={fieldLabel}>Format</label>
@@ -390,28 +634,76 @@ export function ImagesEditPage() {
                 min={1}
                 max={100}
                 value={ops.quality}
-                onChange={set('quality')}
+                onChange={setNum('quality')}
                 style={input}
               />
             </div>
           </div>
 
-          <label
+          <div
             style={{
+              ...card,
+              padding: 12,
+              marginBottom: 10,
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              color: 'var(--text-main)',
-              cursor: 'pointer',
+              justifyContent: 'space-between',
             }}
           >
-            <input type="checkbox" checked={ops.watermark} onChange={set('watermark')} />
-            Watermark
-          </label>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500 }}>Preserve animation</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                Off = first frame only (anim=false)
+              </div>
+            </div>
+            <Toggle
+              checked={ops.anim}
+              onChange={(v) => setOps((p) => ({ ...p, anim: v }))}
+              label="Preserve animation"
+            />
+          </div>
+
+          <div
+            style={{
+              ...card,
+              padding: 12,
+              marginBottom: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 500 }}>Segment foreground</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                BiRefNet cutout → transparent background
+              </div>
+            </div>
+            <Toggle
+              checked={ops.segment}
+              onChange={(v) => setOps((p) => ({ ...p, segment: v }))}
+              label="Segment foreground"
+            />
+          </div>
+
+          <div
+            style={{
+              ...card,
+              padding: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 500 }}>Watermark</span>
+            <Toggle
+              checked={ops.watermark}
+              onChange={(v) => setOps((p) => ({ ...p, watermark: v }))}
+              label="Watermark"
+            />
+          </div>
         </div>
 
-        {/* Preview panel — image renders directly, edge-to-edge, no nested "card" box */}
         <div>
           <div
             style={{
@@ -426,18 +718,13 @@ export function ImagesEditPage() {
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updating…</span>
             )}
           </div>
-          {/*
-            Fixed-footprint box, image at true native size — no crop, no
-            stretch-to-fill. See ImagesDetailPage.tsx for the full rationale;
-            same fix applies here since this page had the identical bug.
-          */}
           <div
             style={{
-              borderRadius: 12,
+              borderRadius: 6,
               border: '1px solid var(--border-subtle)',
               background: 'var(--bg-elevated)',
               padding: previewSrc ? 16 : 0,
-              minHeight: 700,
+              minHeight: 480,
               display: previewSrc ? 'block' : 'flex',
               alignItems: previewSrc ? undefined : 'center',
               justifyContent: previewSrc ? undefined : 'center',

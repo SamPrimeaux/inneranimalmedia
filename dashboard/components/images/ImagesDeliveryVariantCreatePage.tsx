@@ -3,7 +3,7 @@ import { useNavigate, useOutletContext } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
-import { useImagesToast } from './imagesApi';
+import { createNamedVariant, useImagesToast } from './imagesApi';
 import { Dropdown, type DropdownOption } from './Dropdown';
 import { Toggle } from './Toggle';
 import { Breadcrumb } from './Breadcrumb';
@@ -11,12 +11,9 @@ import { Breadcrumb } from './Breadcrumb';
 const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/';
 
 /**
- * Named-variant param catalog. Per CF's own Key Concepts doc: "Predefined
- * variants specify a limited set of parameters: width, height, fit, and
- * blur." `metadata` is also configurable via the dashboard/API even though
- * it's not a resize parameter. This is intentionally NOT the same catalog as
- * the Edit page's binding-transform ops (gravity/rotate/brightness/etc are
- * valid for the binding pipeline, not for named-variant creation).
+ * Named-variant param catalog. Per CF create API schema, options are limited to
+ * width, height, fit, metadata. Blur is Features-doc / flexible-preview only —
+ * shown via + Add for live preview, stripped on Create (API rejects unknown keys).
  */
 type RowKey = 'width' | 'height' | 'fit' | 'metadata' | 'blur';
 
@@ -46,7 +43,7 @@ const ROW_DEFAULTS: Record<RowKey, string> = {
   width: '1366',
   height: '768',
   fit: 'scale-down',
-  metadata: 'none',
+  metadata: 'copyright',
   blur: '0',
 };
 
@@ -81,8 +78,9 @@ export function ImagesDeliveryVariantCreatePage() {
   const [rowKeys, setRowKeys] = useState<RowKey[]>(['width', 'height', 'fit', 'metadata']);
   const [values, setValues] = useState<Record<RowKey, string>>({ ...ROW_DEFAULTS });
   const [watermark, setWatermark] = useState(false);
-  const [publicAccess, setPublicAccess] = useState(true);
+  const [publicAccess, setPublicAccess] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const availableToAdd = useMemo(
     () => ROW_CATALOG.filter((r) => r.addable && !rowKeys.includes(r.key)),
@@ -104,14 +102,40 @@ export function ImagesDeliveryVariantCreatePage() {
 
   const previewUrl = useMemo(() => buildFlexiblePreviewUrl(activeValues), [activeValues]);
 
-  const onCreate = () => {
-    const id = variantId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const onCreate = async () => {
+    const id = variantId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 99);
     if (!id) {
       toast('Enter a variant id', 'err');
       return;
     }
-    const summary = rowKeys.map((k) => `${k}=${values[k]}`).join(', ');
-    toast(`Variants are account-level in Cloudflare Images. Create "${id}" (${summary}) in the CF dashboard or Images API.`);
+    const w = Number(values.width);
+    const h = Number(values.height);
+    if ((!Number.isFinite(w) || w < 1) && (!Number.isFinite(h) || h < 1)) {
+      toast('Width and/or height required', 'err');
+      return;
+    }
+    if (watermark) {
+      // CF account watermark is a dashboard setting; our .draw() path is Edit-only.
+    }
+    setCreating(true);
+    try {
+      const result = await createNamedVariant({
+        id,
+        width: Number.isFinite(w) && w >= 1 ? Math.round(w) : undefined,
+        height: Number.isFinite(h) && h >= 1 ? Math.round(h) : undefined,
+        fit: values.fit || 'scale-down',
+        metadata: values.metadata || 'copyright',
+        neverRequireSignedURLs: publicAccess,
+      });
+      if (!result.ok) {
+        toast(result.error || 'Create failed', 'err');
+        return;
+      }
+      toast(`Variant “${id}” created`);
+      navigate('/dashboard/images/delivery');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const fieldLabel: React.CSSProperties = {
@@ -250,8 +274,11 @@ export function ImagesDeliveryVariantCreatePage() {
             value={variantId}
             onChange={(e) => setVariantId(e.target.value)}
             placeholder="e.g. product_thumb"
-            style={{ ...input, marginBottom: 16 }}
+            style={{ ...input, marginBottom: 6 }}
           />
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 16, lineHeight: 1.45 }}>
+            Name your variant. The variant ID cannot be changed after it has been created.
+          </div>
 
           {rowKeys.map(renderRow)}
 
@@ -354,7 +381,8 @@ export function ImagesDeliveryVariantCreatePage() {
             </button>
             <button
               type="button"
-              onClick={onCreate}
+              disabled={creating}
+              onClick={() => void onCreate()}
               style={{
                 flex: 1,
                 padding: '9px 12px',
@@ -364,11 +392,11 @@ export function ImagesDeliveryVariantCreatePage() {
                 color: '#000',
                 fontSize: 12,
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: creating ? 'wait' : 'pointer',
                 fontFamily: 'inherit',
               }}
             >
-              Create
+              {creating ? 'Creating…' : 'Create'}
             </button>
           </div>
         </div>

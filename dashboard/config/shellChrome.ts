@@ -56,6 +56,14 @@ export function showDashboardStatusBar(
   return opts?.editorDevContext === true;
 }
 
+/**
+ * Full IDE topbar (Cmd+K search, terminal, globe, more menu).
+ * Product surfaces (Images, CMS, …) keep hamburger + workspace + agent toggle only.
+ */
+export function showFullIdeTopbar(pathname: string): boolean {
+  return isAgentEditorPath(normalizePath(pathname));
+}
+
 /** Fixed dashboard status lip height (matches StatusBar row). */
 export const DASHBOARD_STATUS_BAR_INSET = '1.5rem';
 
