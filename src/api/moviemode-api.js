@@ -90,6 +90,20 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
   const { workspaceId, tenantId, authUser } = auth;
   const userId = authUser?.id != null ? String(authUser.id).trim() : '';
 
+  if (
+    path.startsWith('/api/stream/videos/') ||
+    path === '/api/stream/from-url' ||
+    path === '/api/stream/direct-upload'
+  ) {
+    const { handleStreamVideosDetailApi } = await import('./stream-videos-api.js');
+    const res = await handleStreamVideosDetailApi(request, url, env, ctx, {
+      workspaceId,
+      tenantId,
+      userId,
+    });
+    if (res) return res;
+  }
+
   if (path === '/api/moviemode/projects' && method === 'GET') {
     const { results } = await env.DB.prepare(
       `SELECT * FROM moviemode_projects WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 100`,
