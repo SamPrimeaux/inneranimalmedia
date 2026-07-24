@@ -38,7 +38,11 @@ export function ImagesShell({ workspaceId }: ImagesShellProps) {
         height: '100%',
         background: 'var(--bg-app)',
         color: 'var(--text-main)',
-        fontFamily: 'inherit',
+        // CF-like system stack, applied once here and inherited by every
+        // Images product page (Storage/Delivery/Keys/Sourcing/Detail/Edit)
+        // rather than the dashboard's default sans used everywhere else.
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         overflow: 'hidden',
       }}
     >
