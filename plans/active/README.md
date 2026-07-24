@@ -34,6 +34,8 @@ Work **in this order**. Do not parallelize product remasters across these.
 | [MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md](./MAC-LOCALPTY-EXEC-IDENTITY-2026-07.md) | `tkt_mac_localpty_exec_identity_20260722` | Mac `agentsam_terminal_local` Exec-Identity + no sandbox launder — dual-pass E2E |
 | [MEDIA-VIDEOS-STREAM-LIBRARY-2026-07.md](./MEDIA-VIDEOS-STREAM-LIBRARY-2026-07.md) | *(create D1 ticket when started)* | Videos sibling library (Stream·R2·Drive) + CF Stream detail parity + Veo→Stream; Claude=B/D, Cursor=A/C/E/F — see [CLAUDE-LANE-B-D-VIDEOS-HANDOFF-2026-07.md](./CLAUDE-LANE-B-D-VIDEOS-HANDOFF-2026-07.md) |
 | [STREAM-BYOK-ACCOUNT-SCOPED-2026-07.md](./STREAM-BYOK-ACCOUNT-SCOPED-2026-07.md) | *(in media RC)* | Account-scoped Stream BYOK — `cloudflare_account_id` ownership, OAuth stream scopes, no customer→platform fallback |
+| [INTEGRATIONS-OAUTH-PERMISSIONS-SLIDEUP-2026-07.md](./INTEGRATIONS-OAUTH-PERMISSIONS-SLIDEUP-2026-07.md) | `tkt_integrations_oauth_permissions_slideup_2_848b676c0c30` | CF Integrations permissions 1:1 (25 not 5 chips) + slide-up UX; evidence in R2 `ticket-evidence/2026-07-24-media-qa/` |
+| [AGENT-IMAGE-DESCRIBE-STAY-IN-CONTEXT-2026-07.md](./AGENT-IMAGE-DESCRIBE-STAY-IN-CONTEXT-2026-07.md) | `tkt_agent_image_describe_stay_in_context_202_926887cebe09` | Image-detail describe stays on route; vision not Python-first; Monaco text preview — conv `586795be-…` |
 
 ## Verification law (LOCKED — named E2E tiers)
 
