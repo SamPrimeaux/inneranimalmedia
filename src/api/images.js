@@ -717,12 +717,12 @@ async function insertImageRow(env, row) {
       id, tenant_id, project_id, user_id, filename, original_filename,
       mime_type, size, width, height, r2_key, cloudflare_image_id,
       url, thumbnail_url, alt_text, description, tags, metadata, status,
-      created_at, updated_at, workspace_id
+      created_at, updated_at, workspace_id, parent_image_id, transform_json
     ) VALUES (
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?, ?,
-      ?, ?, ?
+      ?, ?, ?, ?, ?
     )`,
   )
     .bind(
@@ -748,9 +748,11 @@ async function insertImageRow(env, row) {
       now,
       now,
       row.workspace_id,
+      row.parent_image_id || null,
+      row.transform_json || null,
     )
     .run();
-  return { ...row, created_at: now, updated_at: now };
+  return { ...row, created_at: now, updated_at: now, parent_image_id: row.parent_image_id || null, transform_json: row.transform_json || null };
 }
 
 async function handleGetImages(request, url, env, authUser, identity) {
