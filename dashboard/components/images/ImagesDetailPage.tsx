@@ -375,18 +375,21 @@ export function ImagesDetailPage() {
         />
       </div>
 
+      {/*
+        Preview frame: fixed-footprint grey box, like CF's own. The box does NOT
+        resize per variant — only the image inside does, rendered at its true
+        native pixel size (no crop, no stretch-to-fill). A 200x200 avatar sits
+        small in the top-left corner of the same box a 1920x1080 hero mostly
+        fills; oversized variants simply overflow the box's min-height and the
+        page scrolls normally to reveal the rest, exactly like the CF dashboard.
+      */}
       <div
         style={{
           borderRadius: 12,
           border: '1px solid var(--border-subtle)',
           background: 'var(--bg-elevated)',
           padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-          minHeight: 320,
+          minHeight: 700,
         }}
       >
         {(previewUrl || galleryPreview.src) && (
@@ -398,11 +401,11 @@ export function ImagesDetailPage() {
             srcSet={!previewUrl ? galleryPreview.srcSet : undefined}
             sizes={!previewUrl ? galleryPreview.sizes : undefined}
             alt={img.filename || img.id}
-            style={{ maxWidth: '100%', maxHeight: 440, objectFit: 'contain', borderRadius: 4 }}
+            style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
           />
         )}
         {previewUrl ? (
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 12 }}>
             {selectedVariant}
             {selectedVariantHint ? ` \u00b7 ${selectedVariantHint}` : ''}
           </div>
