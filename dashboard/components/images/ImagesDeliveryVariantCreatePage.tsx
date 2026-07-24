@@ -284,23 +284,29 @@ export function ImagesDeliveryVariantCreatePage() {
           </div>
         </div>
 
-        {/* Preview panel — image renders directly, edge-to-edge, no nested "card" box */}
+        {/*
+          Fixed-footprint box, image at true native size — no crop, no
+          stretch-to-fill. See ImagesDetailPage.tsx for the full rationale;
+          same fix applies here since this page had the identical bug.
+        */}
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Preview</div>
-          <img
-            key={previewUrl}
-            src={previewUrl}
-            alt="Live variant preview"
+          <div
             style={{
-              display: 'block',
-              width: '100%',
-              maxHeight: 620,
-              objectFit: 'cover',
               borderRadius: 12,
               border: '1px solid var(--border-subtle)',
               background: 'var(--bg-elevated)',
+              padding: 16,
+              minHeight: 700,
             }}
-          />
+          >
+            <img
+              key={previewUrl}
+              src={previewUrl}
+              alt="Live variant preview"
+              style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+            />
+          </div>
           <div
             style={{
               marginTop: 10,
