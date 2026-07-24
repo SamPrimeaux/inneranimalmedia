@@ -335,7 +335,7 @@ export function normalizeImageGenerationEvent(
       patch: {
         generationId,
         phase: 'generating',
-        previewFrames: [{ frameIndex, previewUrl }],
+        previewFrames: [{ frameIndex, previewUrl, generationId }],
         activeFrameIndex: frameIndex,
       },
     };
@@ -352,10 +352,19 @@ export function normalizeImageGenerationEvent(
           ? Math.max(0, Math.floor(o.variation_index))
           : null;
     const previewFrames: ImageGenerationPreviewFrame[] = [];
-    const pushFrame = (url: string, frameIndex: number) => {
+    const pushFrame = (url: string, frameIndex: number, frameGenId?: string) => {
       const u = url.trim();
-      if (!u || previewFrames.some((f) => f.previewUrl === u)) return;
-      previewFrames.push({ frameIndex, previewUrl: u });
+      if (!u) return;
+      const existing = previewFrames.find((f) => f.previewUrl === u || f.frameIndex === frameIndex);
+      if (existing) {
+        if (frameGenId && !existing.generationId) existing.generationId = frameGenId;
+        return;
+      }
+      previewFrames.push({
+        frameIndex,
+        previewUrl: u,
+        ...(frameGenId ? { generationId: frameGenId } : {}),
+      });
     };
     if (Array.isArray(o.preview_urls)) {
       o.preview_urls.forEach((u, i) => {
@@ -365,7 +374,12 @@ export function normalizeImageGenerationEvent(
     if (Array.isArray(o.variations)) {
       o.variations.forEach((v, i) => {
         if (!v || typeof v !== 'object') return;
-        const row = v as { image_url?: unknown; preview_url?: unknown; variation_index?: unknown };
+        const row = v as {
+          image_url?: unknown;
+          preview_url?: unknown;
+          variation_index?: unknown;
+          generation_id?: unknown;
+        };
         const u =
           (typeof row.image_url === 'string' && row.image_url) ||
           (typeof row.preview_url === 'string' && row.preview_url) ||
@@ -374,16 +388,17 @@ export function normalizeImageGenerationEvent(
           typeof row.variation_index === 'number' && Number.isFinite(row.variation_index)
             ? Math.max(0, Math.floor(row.variation_index))
             : i;
-        if (u) pushFrame(u, fi);
+        const gid = typeof row.generation_id === 'string' ? row.generation_id.trim() : '';
+        if (u) pushFrame(u, fi, gid || undefined);
       });
     }
     // Per-variation completes must keep their slot — never collapse to frame 0.
     if (previewFrames.length === 0 && (previewUrl || imageUrl)) {
-      pushFrame(previewUrl || imageUrl, explicitFrame ?? 0);
+      pushFrame(previewUrl || imageUrl, explicitFrame ?? 0, generationId);
     } else {
-      if (previewUrl) pushFrame(previewUrl, explicitFrame ?? previewFrames.length);
+      if (previewUrl) pushFrame(previewUrl, explicitFrame ?? previewFrames.length, generationId);
       if (imageUrl && imageUrl !== previewUrl) {
-        pushFrame(imageUrl, explicitFrame ?? previewFrames.length);
+        pushFrame(imageUrl, explicitFrame ?? previewFrames.length, generationId);
       }
     }
     return {

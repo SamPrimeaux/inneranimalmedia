@@ -8,9 +8,9 @@
 
 import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CloudUpload, Download, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
-import type { ImageGenerationState } from './ChatAssistant/types';
+import type { ImageGenerationPreviewFrame, ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
 import {
   saveImageDraft,
@@ -39,8 +39,17 @@ function titleFromPrompt(prompt?: string): string {
 }
 
 function shortId(generationId?: string): string {
-  const id = String(generationId || '').replace(/^igen_/, '');
+  const id = String(generationId || '').replace(/^igen_/, '').replace(/^imgxb_/, '');
   return id ? id.slice(0, 8) : 'draft';
+}
+
+function sortedFrames(state: ImageGenerationState): ImageGenerationPreviewFrame[] {
+  if (state.previewFrames?.length) {
+    return [...state.previewFrames].sort((a, b) => a.frameIndex - b.frameIndex);
+  }
+  const url = state.previewUrl || state.imageUrl || state.committedUrl;
+  if (!url) return [];
+  return [{ frameIndex: 0, previewUrl: url, generationId: state.generationId }];
 }
 
 export function AgentImageGenerationCard({
@@ -58,6 +67,7 @@ export function AgentImageGenerationCard({
   const [committedUrl, setCommittedUrl] = useState<string | null>(state.committedUrl || null);
   const [userRating, setUserRating] = useState<1 | -1 | null>(state.userRating ?? null);
 
+  const frames = useMemo(() => sortedFrames(state), [state]);
   const previewUrl =
     state.previewFrames.find((f) => f.frameIndex === state.activeFrameIndex)?.previewUrl ||
     state.previewFrames[state.previewFrames.length - 1]?.previewUrl ||
@@ -68,20 +78,34 @@ export function AgentImageGenerationCard({
   const isFailed = state.phase === 'failed';
   const isDraft = isComplete && (state.status === 'draft' || !state.persist);
   const displayUrl = lightboxFocusUrl || committedUrl || previewUrl;
+  const activeFrame =
+    frames.find((f) => f.previewUrl === displayUrl) ||
+    frames.find((f) => f.frameIndex === state.activeFrameIndex) ||
+    frames[frames.length - 1] ||
+    null;
+  const activeGenId = activeFrame?.generationId || state.generationId;
+  const lightboxIndex = Math.max(
+    0,
+    frames.findIndex((f) => f.previewUrl === displayUrl),
+  );
+  const multi = frames.length > 1;
   const imageTitle = useMemo(() => titleFromPrompt(state.prompt), [state.prompt]);
   const pathLabel = useMemo(
-    () => `Agent / Images / ${isDraft ? 'Draft' : 'Library'} / ${shortId(state.generationId)}`,
-    [isDraft, state.generationId],
+    () => `Agent / Images / ${isDraft ? 'Draft' : 'Library'} / ${shortId(activeGenId)}`,
+    [isDraft, activeGenId],
   );
 
-  const openLightbox = useCallback((url?: string) => {
-    const target = (url || committedUrl || previewUrl || '').trim();
-    if (!target) return;
-    setLightboxFocusUrl(target);
-    setActionMsg(null);
-    setEditText('');
-    setLightboxOpen(true);
-  }, [committedUrl, previewUrl]);
+  const openLightbox = useCallback(
+    (url?: string) => {
+      const target = (url || committedUrl || previewUrl || '').trim();
+      if (!target) return;
+      setLightboxFocusUrl(target);
+      setActionMsg(null);
+      setEditText('');
+      setLightboxOpen(true);
+    },
+    [committedUrl, previewUrl],
+  );
 
   const closeLightbox = useCallback(() => {
     setLightboxOpen(false);
@@ -89,10 +113,28 @@ export function AgentImageGenerationCard({
     setEditBusy(false);
   }, []);
 
+  const stepLightbox = useCallback(
+    (delta: number) => {
+      if (frames.length < 2) return;
+      const i = lightboxIndex >= 0 ? lightboxIndex : 0;
+      const next = frames[(i + delta + frames.length) % frames.length];
+      if (next?.previewUrl) setLightboxFocusUrl(next.previewUrl);
+    },
+    [frames, lightboxIndex],
+  );
+
   useEffect(() => {
     if (!lightboxOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepLightbox(-1);
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepLightbox(1);
+      }
     };
     window.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -101,7 +143,7 @@ export function AgentImageGenerationCard({
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [lightboxOpen, closeLightbox]);
+  }, [lightboxOpen, closeLightbox, stepLightbox]);
 
   const submitEdit = useCallback(
     (text: string) => {
@@ -124,11 +166,11 @@ export function AgentImageGenerationCard({
   );
 
   const handleRate = async (rating: 1 | -1) => {
-    if (!state.generationId || busyAction === 'rate') return;
+    if (!activeGenId || busyAction === 'rate') return;
     setBusyAction('rate');
     setActionMsg(null);
     try {
-      await rateImageDraft(state.generationId, rating, workspaceId);
+      await rateImageDraft(activeGenId, rating, workspaceId);
       setUserRating(rating);
       setActionMsg(rating === 1 ? 'Thanks — noted' : 'Thanks — we will learn from that');
     } catch (e) {
@@ -142,11 +184,11 @@ export function AgentImageGenerationCard({
     const url = displayUrl;
     if (!url) return;
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { credentials: 'include' });
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `agentsam-${shortId(state.generationId)}.png`;
+      a.download = `agentsam-${shortId(activeGenId)}.png`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
@@ -154,20 +196,62 @@ export function AgentImageGenerationCard({
     }
   };
 
-  const handleSaveToLibrary = async () => {
-    if (!state.generationId) return;
-    setBusyAction('save');
+  /** Host the currently viewed frame on Cloudflare Images (no local download step). */
+  const handleSaveToCfImages = async () => {
+    const url = displayUrl;
+    if (!url || busyAction === 'cf') return;
+    setBusyAction('cf');
     setActionMsg(null);
     try {
-      const out = await saveImageDraft(state.generationId, {
-        workspaceId,
-        label: imageTitle,
-        category: 'agent_backdrops',
-        register_cms_asset: true,
+      // Prefer draft→library when still a draft; then always host on CF Images from the bytes.
+      if (isDraft && activeGenId) {
+        try {
+          const out = await saveImageDraft(activeGenId, {
+            workspaceId,
+            label: imageTitle,
+            category: 'agent_backdrops',
+            register_cms_asset: true,
+          });
+          const libraryUrl = out.url || out.public_url;
+          if (libraryUrl) setCommittedUrl(libraryUrl);
+        } catch {
+          /* draft may already be saved — still host bytes on CF Images */
+        }
+      }
+
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
+      const blob = await res.blob();
+      const mime = blob.type || 'image/jpeg';
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      const file = new File([blob], `agentsam-${shortId(activeGenId)}.${ext}`, { type: mime });
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('alt_text', imageTitle);
+      const qs = workspaceId?.trim()
+        ? `?workspace_id=${encodeURIComponent(workspaceId.trim())}`
+        : '';
+      const up = await fetch(`/api/images/upload${qs}`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
       });
-      const url = out.url || out.public_url;
-      if (url) setCommittedUrl(url);
-      setActionMsg('Saved to library');
+      const json = (await up.json().catch(() => null)) as {
+        error?: string;
+        item?: { url?: string; public_url?: string };
+        image?: { url?: string; public_url?: string };
+        url?: string;
+      } | null;
+      if (!up.ok) throw new Error(json?.error || 'Cloudflare Images upload failed');
+      const cfUrl =
+        json?.item?.url ||
+        json?.item?.public_url ||
+        json?.image?.url ||
+        json?.image?.public_url ||
+        json?.url ||
+        '';
+      if (cfUrl) setCommittedUrl(cfUrl);
+      setActionMsg('Saved to Cloudflare Images');
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -176,12 +260,12 @@ export function AgentImageGenerationCard({
   };
 
   const handleDiscard = async () => {
-    if (!state.generationId || !isDraft) return;
+    if (!activeGenId || !isDraft) return;
     if (!window.confirm('Discard this draft?')) return;
     setBusyAction('discard');
     setActionMsg(null);
     try {
-      await discardImageDraft(state.generationId);
+      await discardImageDraft(activeGenId);
       setActionMsg('Discarded');
       closeLightbox();
     } catch (e) {
@@ -192,7 +276,7 @@ export function AgentImageGenerationCard({
   };
 
   const renderRatingControls = () =>
-    isComplete && state.generationId ? (
+    isComplete && activeGenId ? (
       <div className="iam-image-gen-rate" role="group" aria-label="Rate this image">
         <button
           type="button"
@@ -236,9 +320,9 @@ export function AgentImageGenerationCard({
             {state.message?.trim() || 'Generating image…'}
           </p>
         ) : null}
-        {state.previewFrames.length > 1 ? (
+        {frames.length > 1 ? (
           <div className="iam-image-gen-variants" role="list">
-            {state.previewFrames.map((frame) => (
+            {frames.map((frame) => (
               <button
                 key={`${frame.frameIndex}-${frame.previewUrl}`}
                 type="button"
@@ -265,7 +349,7 @@ export function AgentImageGenerationCard({
         {isComplete ? (
           <div className="iam-image-gen-footer">
             {renderRatingControls()}
-            <button type="button" className="iam-image-gen-expand-hint" onClick={openLightbox}>
+            <button type="button" className="iam-image-gen-expand-hint" onClick={() => openLightbox()}>
               Click to enlarge
             </button>
           </div>
@@ -298,6 +382,7 @@ export function AgentImageGenerationCard({
                   <div className="iam-image-gen-lightbox__meta">
                     <p id={pathId} className="iam-image-gen-lightbox__path">
                       {pathLabel}
+                      {multi ? ` · ${lightboxIndex + 1} / ${frames.length}` : ''}
                     </p>
                     <h2 id={titleId} className="iam-image-gen-lightbox__title">
                       {imageTitle}
@@ -305,17 +390,26 @@ export function AgentImageGenerationCard({
                   </div>
                   <div className="iam-image-gen-lightbox__actions">
                     {renderRatingControls()}
-                    {isDraft ? (
-                      <button
-                        type="button"
-                        disabled={busyAction != null}
-                        onClick={() => void handleSaveToLibrary()}
-                      >
-                        {busyAction === 'save' ? 'Saving…' : 'Save'}
-                      </button>
-                    ) : null}
-                    <button type="button" onClick={() => void handleDownload()}>
-                      Download
+                    <button
+                      type="button"
+                      className="iam-image-gen-lightbox__icon-action"
+                      disabled={busyAction != null}
+                      title="Save to Cloudflare Images"
+                      aria-label="Save to Cloudflare Images"
+                      onClick={() => void handleSaveToCfImages()}
+                    >
+                      <CloudUpload size={16} strokeWidth={2.25} absoluteStrokeWidth aria-hidden />
+                      <span>{busyAction === 'cf' ? 'Saving…' : 'Save'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="iam-image-gen-lightbox__icon-action"
+                      title="Download"
+                      aria-label="Download"
+                      onClick={() => void handleDownload()}
+                    >
+                      <Download size={16} strokeWidth={2.25} absoluteStrokeWidth aria-hidden />
+                      <span>Download</span>
                     </button>
                     {isDraft ? (
                       <button
@@ -329,7 +423,27 @@ export function AgentImageGenerationCard({
                   </div>
                 </header>
                 <div className="iam-image-gen-lightbox__stage">
+                  {multi ? (
+                    <button
+                      type="button"
+                      className="iam-image-gen-lightbox__nav iam-image-gen-lightbox__nav--prev"
+                      aria-label="Previous image"
+                      onClick={() => stepLightbox(-1)}
+                    >
+                      <ChevronLeft size={28} strokeWidth={2} absoluteStrokeWidth aria-hidden />
+                    </button>
+                  ) : null}
                   <img src={displayUrl} alt={imageTitle} />
+                  {multi ? (
+                    <button
+                      type="button"
+                      className="iam-image-gen-lightbox__nav iam-image-gen-lightbox__nav--next"
+                      aria-label="Next image"
+                      onClick={() => stepLightbox(1)}
+                    >
+                      <ChevronRight size={28} strokeWidth={2} absoluteStrokeWidth aria-hidden />
+                    </button>
+                  ) : null}
                 </div>
                 {actionMsg ? (
                   <p className="iam-image-gen-lightbox__msg" aria-live="polite">

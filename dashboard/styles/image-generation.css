@@ -307,6 +307,12 @@
   cursor: pointer;
 }
 
+.iam-image-gen-lightbox__icon-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .iam-image-gen-lightbox__actions button:hover:not(:disabled) {
   background: color-mix(in srgb, #fff 12%, transparent);
 }
@@ -317,12 +323,13 @@
 }
 
 .iam-image-gen-lightbox__stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px 12px;
+  padding: 8px 56px 12px;
 }
 
 .iam-image-gen-lightbox__stage img {
@@ -330,6 +337,35 @@
   max-height: 100%;
   object-fit: contain;
   border-radius: 8px;
+}
+
+.iam-image-gen-lightbox__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #050608 55%, transparent);
+  color: #fafafa;
+  cursor: pointer;
+}
+
+.iam-image-gen-lightbox__nav:hover {
+  background: color-mix(in srgb, #050608 75%, transparent);
+}
+
+.iam-image-gen-lightbox__nav--prev {
+  left: 10px;
+}
+
+.iam-image-gen-lightbox__nav--next {
+  right: 10px;
 }
 
 .iam-image-gen-lightbox__msg {

@@ -295,8 +295,13 @@ function mergeImageGenerationState(
     const next = [...base.previewFrames];
     for (const frame of patch.previewFrames) {
       const idx = next.findIndex((f) => f.frameIndex === frame.frameIndex || f.previewUrl === frame.previewUrl);
-      if (idx >= 0) next[idx] = frame;
-      else next.push(frame);
+      if (idx >= 0) {
+        next[idx] = {
+          ...next[idx],
+          ...frame,
+          generationId: frame.generationId || next[idx].generationId,
+        };
+      } else next.push(frame);
     }
     next.sort((a, b) => a.frameIndex - b.frameIndex);
     previewFrames = next;

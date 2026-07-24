@@ -95,6 +95,8 @@ export type ImageGenerationPhase =
 export type ImageGenerationPreviewFrame = {
   frameIndex: number;
   previewUrl: string;
+  /** Per-variation draft id when fan-out emits distinct generation_ids. */
+  generationId?: string;
 };
 
 /** Progressive image generation card state (SSE `image_generation_*`). */
