@@ -319,14 +319,26 @@ export function ImagesDetailPage() {
         <span style={{ color: 'var(--text-main)' }}>{img.filename || img.id}</span>
       </nav>
 
+      {/*
+        Sticky title+action row — CF keeps Export/Edit/Delete visible while the
+        rest of the page (breadcrumb, metadata, variants, preview) scrolls
+        underneath. Only the breadcrumb above this scrolls away; this row
+        pins to the top of the page's own scroll container.
+      */}
       <div
         style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 12,
           flexWrap: 'wrap',
           marginBottom: 20,
+          padding: '10px 0',
+          background: 'var(--bg-app)',
+          borderBottom: '1px solid var(--border-subtle)',
         }}
       >
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600 }}>{img.filename || img.id}</h2>
