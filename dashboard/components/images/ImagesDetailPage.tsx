@@ -209,23 +209,16 @@ export function ImagesDetailPage() {
     a.remove();
   };
 
+  // CF's own Metadata panel shows exactly what's actually stored against the
+  // image — often just `{}` when nothing's been set. The Image ID/Filename/
+  // Creator/etc fields already have their own rows in the left panel, so
+  // re-packaging them into this JSON view is pure duplication, not metadata.
+  // Show img.meta verbatim (empty object if there's genuinely nothing there)
+  // rather than synthesizing a payload that always looks non-empty.
   const metaJson = useMemo(() => {
-    if (!img) return '{}';
-    const payload = {
-      id: img.id,
-      filename: img.filename,
-      cloudflare_image_id: img.cloudflare_image_id,
-      workspace_id: img.workspace_id || workspaceId,
-      user_id: img.user_id,
-      source: img.source,
-      mime_type: img.mime_type,
-      size: img.size,
-      width: img.width,
-      height: img.height,
-      meta: img.meta || {},
-    };
-    return JSON.stringify(payload, null, 2);
-  }, [img, workspaceId]);
+    const raw = img?.meta && typeof img.meta === 'object' && !Array.isArray(img.meta) ? img.meta : {};
+    return JSON.stringify(raw, null, 2);
+  }, [img]);
 
   const btn = (label: string, icon: React.ReactNode, onClick: () => void, primary?: boolean) => (
     <button
