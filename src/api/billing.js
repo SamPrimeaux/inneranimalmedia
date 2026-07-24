@@ -137,14 +137,14 @@ async function upsertBillingCustomer(env, tenantId, stripeCustomerId) {
     .first();
   if (row?.tenant_id) {
     await env.DB.prepare(
-      `UPDATE billing_customers SET stripe_customer_id = ?, updated_at = datetime('now') WHERE tenant_id = ?`,
+      `UPDATE billing_customers SET stripe_customer_id = ?, updated_at = unixepoch() WHERE tenant_id = ?`,
     )
       .bind(stripeCustomerId, tenantId)
       .run();
   } else {
     await env.DB.prepare(
       `INSERT INTO billing_customers (tenant_id, stripe_customer_id, created_at, updated_at)
-       VALUES (?, ?, datetime('now'), datetime('now'))`,
+       VALUES (?, ?, unixepoch(), unixepoch())`,
     )
       .bind(tenantId, stripeCustomerId)
       .run();
@@ -168,13 +168,13 @@ function deriveSubscriptionFields(sub) {
   const trialEndsUnix = sub?.trial_end != null ? Number(sub.trial_end) : null;
   const trialEndsAt =
     trialEndsUnix != null && Number.isFinite(trialEndsUnix)
-      ? new Date(trialEndsUnix * 1000).toISOString()
+      ? Math.floor(trialEndsUnix)
       : null;
   const wsMeta = sub?.metadata?.workspace_id ? String(sub.metadata.workspace_id).trim() : null;
   const cps =
-    sub?.current_period_start != null ? String(Math.floor(Number(sub.current_period_start))) : null;
+    sub?.current_period_start != null ? Math.floor(Number(sub.current_period_start)) : null;
   const cpe =
-    sub?.current_period_end != null ? String(Math.floor(Number(sub.current_period_end))) : null;
+    sub?.current_period_end != null ? Math.floor(Number(sub.current_period_end)) : null;
   return {
     seats,
     billingPeriod,
@@ -195,8 +195,8 @@ function deriveSubscriptionFields(sub) {
  *   stripe_subscription_id: string,
  *   stripe_customer_id: string,
  *   status: string,
- *   current_period_start: string | null,
- *   current_period_end: string | null,
+ *   current_period_start: number | null,
+ *   current_period_end: number | null,
  *   amount_cents: number | null,
  *   billing_period?: string | null,
  *   seats?: number | null,
@@ -228,7 +228,7 @@ async function upsertBillingSubscriptionFromStripe(env, row) {
         seats = ?,
         trial_ends_at = ?,
         workspace_id = COALESCE(?, workspace_id),
-        updated_at = datetime('now')
+        updated_at = unixepoch()
        WHERE tenant_id = ?`,
     )
       .bind(
@@ -253,7 +253,7 @@ async function upsertBillingSubscriptionFromStripe(env, row) {
         current_period_start, current_period_end, amount_cents,
         billing_period, seats, trial_ends_at, workspace_id,
         cancel_at_period_end, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, unixepoch(), unixepoch())`,
     )
       .bind(
         row.tenant_id,
@@ -398,7 +398,7 @@ async function dispatchStripeEvent(env, event) {
         current_period_start, current_period_end, cancel_at_period_end,
         workspace_id, seats, trial_ends_at, stripe_customer_id, billing_period, amount_cents,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
     )
       .bind(
         tenantId,
@@ -446,7 +446,7 @@ async function dispatchStripeEvent(env, event) {
         seats = ?,
         trial_ends_at = ?,
         amount_cents = COALESCE(?, amount_cents),
-        updated_at = datetime('now')
+        updated_at = unixepoch()
        WHERE stripe_subscription_id = ?`,
     )
       .bind(
@@ -470,7 +470,7 @@ async function dispatchStripeEvent(env, event) {
     if (!stripeSubId) return;
     void logAgentsamWebhookPayloadJson(env, type, o);
     await env.DB.prepare(
-      `UPDATE billing_subscriptions SET status = 'canceled', updated_at = datetime('now') WHERE stripe_subscription_id = ?`,
+      `UPDATE billing_subscriptions SET status = 'canceled', updated_at = unixepoch() WHERE stripe_subscription_id = ?`,
     )
       .bind(stripeSubId)
       .run();
@@ -642,7 +642,7 @@ async function dispatchStripeEvent(env, event) {
       typeof subRef === 'string' ? subRef : subRef?.id ? String(subRef.id) : '';
     if (!stripeSubId) return;
     await env.DB.prepare(
-      `UPDATE billing_subscriptions SET status = 'past_due', updated_at = datetime('now') WHERE stripe_subscription_id = ?`,
+      `UPDATE billing_subscriptions SET status = 'past_due', updated_at = unixepoch() WHERE stripe_subscription_id = ?`,
     )
       .bind(stripeSubId)
       .run();
