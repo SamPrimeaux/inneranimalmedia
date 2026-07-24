@@ -27,10 +27,11 @@ const DEFAULT_HINTS: Record<string, string> = Object.fromEntries(
  * full images per page view here was both visually wrong (didn't match CF)
  * and wasteful (7x the transform/bandwidth cost of what CF's own UI does).
  */
-export function ImageVariantGrid({ variants, selected, onSelect }: ImageVariantGridProps) {
+export function ImageVariantGrid({ variants, selected, onSelect, hints }: ImageVariantGridProps) {
   const ids = Object.keys(variants).length
     ? Object.keys(variants)
     : (NAMED_VARIANTS.map((v) => v.id) as string[]);
+  const HINTS = hints || DEFAULT_HINTS;
 
   return (
     <div
