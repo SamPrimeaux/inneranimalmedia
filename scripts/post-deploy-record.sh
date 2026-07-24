@@ -20,9 +20,10 @@
 #
 # Cross-repo trail (e.g. MCP worker): set DEPLOY_GIT_ROOT to that repo for SHA/message;
 # this script still lives in inneranimalmedia and uses wrangler.production.toml for D1.
+# WORKER_NAME≠inneranimalmedia → worker-only (skip SPA dashboard_versions; no ALLOW_SKIP alarm).
 # Example:
 #   WORKER_NAME=inneranimalmedia-mcp-server PROJECT_ID=inneranimalmedia-mcp-server \
-#   SKIP_DASHBOARD_VERSIONS=1 ALLOW_SKIP_DEPLOY_TRAIL=1 \
+#   WORKSPACE_ID=ws_inneranimalmedia_mcp TENANT_ID=tenant_sam_primeaux \
 #   DEPLOY_GIT_ROOT=/path/to/inneranimalmedia-mcp-server \
 #   bash scripts/post-deploy-record.sh
 

@@ -28,6 +28,18 @@ _iam_toml_var() {
 
 iam_load_deploy_env() {
   local root toml env_file mcp_exports
+  # Caller-set identity (MCP trail, worker-only ships) must win over .env.cloudflare.
+  # Sourcing env files with set -a otherwise clobbers WORKSPACE_ID=ws_* from the parent.
+  local _caller_workspace_id="${WORKSPACE_ID-}"
+  local _caller_tenant_id="${TENANT_ID-}"
+  local _caller_worker_name="${WORKER_NAME-}"
+  local _caller_project_id="${PROJECT_ID-}"
+  local _had_workspace_id=0 _had_tenant_id=0 _had_worker_name=0 _had_project_id=0
+  [[ -n "${WORKSPACE_ID+x}" ]] && _had_workspace_id=1
+  [[ -n "${TENANT_ID+x}" ]] && _had_tenant_id=1
+  [[ -n "${WORKER_NAME+x}" ]] && _had_worker_name=1
+  [[ -n "${PROJECT_ID+x}" ]] && _had_project_id=1
+
   root="$(_iam_deploy_env_repo_root)"
   toml="${CF_BUILDS_WRANGLER_CONFIG:-$root/wrangler.production.toml}"
   [[ "$toml" = /* ]] || toml="$root/$toml"
@@ -49,6 +61,11 @@ iam_load_deploy_env() {
     set +a
   fi
 
+  if [[ "$_had_workspace_id" == "1" ]]; then WORKSPACE_ID="$_caller_workspace_id"; fi
+  if [[ "$_had_tenant_id" == "1" ]]; then TENANT_ID="$_caller_tenant_id"; fi
+  if [[ "$_had_worker_name" == "1" ]]; then WORKER_NAME="$_caller_worker_name"; fi
+  if [[ "$_had_project_id" == "1" ]]; then PROJECT_ID="$_caller_project_id"; fi
+
   # Public wrangler [vars] fill gaps when CF Builds / thin shells omit them.
   : "${CLOUDFLARE_ACCOUNT_ID:=$(_iam_toml_var CLOUDFLARE_ACCOUNT_ID "$toml")}"
   : "${WORKSPACE_ID:=$(_iam_toml_var WORKSPACE_ID "$toml")}"
@@ -60,6 +77,7 @@ iam_load_deploy_env() {
 
   export CLOUDFLARE_ACCOUNT_ID WORKSPACE_ID D1_AUTH_USER_ID IAM_D1_AUTH_USER_ID
   export IAM_SUPABASE_USER_ID IAM_SUPABASE_WORKSPACE_ID OPERATOR_USER_EMAIL
+  export TENANT_ID WORKER_NAME PROJECT_ID
 
   # Prefer bridge from mcp rotation exports when both exist (mcp_exports sourced second above).
   if [[ -z "${AGENTSAM_BRIDGE_KEY:-}" && -n "${INTERNAL_API_SECRET:-}" ]]; then
