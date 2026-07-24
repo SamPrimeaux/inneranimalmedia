@@ -116,9 +116,21 @@ export function imageGenerationStateFromMarkdown(content: string): ImageGenerati
 function agentFilesFromImageState(
   state: ImageGenerationState | null | undefined,
 ): NonNullable<Message['agentFiles']> {
-  if (!state?.previewFrames?.length) return [];
-  return state.previewFrames.map((f, i) => {
-    const filename = `variation-${i + 1}.jpg`;
+  if (!state) return [];
+  const frames = (state.previewFrames || []).filter((f) => Boolean(f.previewUrl));
+  if (!frames.length && (state.previewUrl || state.imageUrl)) {
+    return [
+      {
+        filename: 'variation-1.jpg',
+        r2Url: state.previewUrl || state.imageUrl,
+        workspacePath: 'images/variation-1.jpg',
+        kind: 'image' as const,
+      },
+    ];
+  }
+  return frames.map((f) => {
+    const n = f.frameIndex + 1;
+    const filename = `variation-${n}.jpg`;
     return {
       filename,
       r2Url: f.previewUrl,

@@ -1792,16 +1792,29 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
     delete variationParams.count;
     delete variationParams.n;
     const genId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    emit('image_generation_progress', {
-      type: 'image_generation_progress',
-      batch_id: batchId,
-      variation_index: index,
-      generation_id: genId,
-      progress: 8,
-      stage: 'initializing',
-      message: `Starting variation ${index + 1} of ${count}...`,
-      preview_frame: 0,
-    });
+    let tickIndex = 0;
+    const emitTick = (tick) => {
+      emit('image_generation_progress', {
+        type: 'image_generation_progress',
+        batch_id: batchId,
+        variation_index: index,
+        frame_index: index,
+        generation_id: genId,
+        progress: tick.progress,
+        stage: tick.stage,
+        message: `Variation ${index + 1}/${count}: ${tick.message}`,
+        preview_frame: index,
+      });
+    };
+    const firstTick = IMAGE_PROGRESS_TICKS[0];
+    emitTick(firstTick);
+    tickIndex = 1;
+    // Stagger timers slightly so parallel slots don't pulse in lockstep.
+    const progressTimer = setInterval(() => {
+      const tick = IMAGE_PROGRESS_TICKS[tickIndex % IMAGE_PROGRESS_TICKS.length];
+      tickIndex += 1;
+      emitTick(tick);
+    }, PROGRESS_INTERVAL_MS + index * 400);
     try {
       const result = await runImageGenerationForTool(
         env,
@@ -1839,6 +1852,18 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
       return { ok: true, index, result };
     } catch (e) {
       const msg = e?.message != null ? String(e.message) : String(e);
+      emit('image_generation_progress', {
+        type: 'image_generation_progress',
+        batch_id: batchId,
+        variation_index: index,
+        frame_index: index,
+        generation_id: genId,
+        progress: 100,
+        stage: 'failed',
+        message: `Variation ${index + 1} failed`,
+        preview_frame: index,
+        failed: true,
+      });
       emit('image_generation_complete', {
         type: 'image_generation_complete',
         batch_id: batchId,
@@ -1850,6 +1875,8 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
         error: msg,
       });
       return { ok: false, index, error: msg };
+    } finally {
+      clearInterval(progressTimer);
     }
   };
 

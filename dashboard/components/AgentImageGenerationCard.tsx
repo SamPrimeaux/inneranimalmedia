@@ -44,12 +44,26 @@ function shortId(generationId?: string): string {
 }
 
 function sortedFrames(state: ImageGenerationState): ImageGenerationPreviewFrame[] {
+  const count = Math.max(state.variationCount ?? 0, state.previewFrames?.length ?? 0);
+  if (count > 1) {
+    const byIndex = new Map((state.previewFrames || []).map((f) => [f.frameIndex, f]));
+    return Array.from({ length: count }, (_, i) => {
+      const existing = byIndex.get(i);
+      if (existing) return existing;
+      return {
+        frameIndex: i,
+        phase: 'initializing' as const,
+        progress: 0,
+        message: `Variation ${i + 1} of ${count}…`,
+      };
+    });
+  }
   if (state.previewFrames?.length) {
     return [...state.previewFrames].sort((a, b) => a.frameIndex - b.frameIndex);
   }
   const url = state.previewUrl || state.imageUrl || state.committedUrl;
   if (!url) return [];
-  return [{ frameIndex: 0, previewUrl: url, generationId: state.generationId }];
+  return [{ frameIndex: 0, previewUrl: url, generationId: state.generationId, phase: state.phase, progress: state.progress }];
 }
 
 export function AgentImageGenerationCard({
@@ -68,27 +82,31 @@ export function AgentImageGenerationCard({
   const [userRating, setUserRating] = useState<1 | -1 | null>(state.userRating ?? null);
 
   const frames = useMemo(() => sortedFrames(state), [state]);
+  const readyFrames = useMemo(
+    () => frames.filter((f) => Boolean(f.previewUrl) && !f.failed),
+    [frames],
+  );
   const previewUrl =
-    state.previewFrames.find((f) => f.frameIndex === state.activeFrameIndex)?.previewUrl ||
-    state.previewFrames[state.previewFrames.length - 1]?.previewUrl ||
+    frames.find((f) => f.frameIndex === state.activeFrameIndex)?.previewUrl ||
+    readyFrames[readyFrames.length - 1]?.previewUrl ||
     state.previewUrl ||
     state.imageUrl;
 
-  const isComplete = state.phase === 'completed' && Boolean(previewUrl);
-  const isFailed = state.phase === 'failed';
+  const multi = frames.length > 1 || (state.variationCount ?? 0) > 1;
+  const isComplete = state.phase === 'completed' && (Boolean(previewUrl) || readyFrames.length > 0);
+  const isFailed = state.phase === 'failed' && readyFrames.length === 0;
   const isDraft = isComplete && (state.status === 'draft' || !state.persist);
   const displayUrl = lightboxFocusUrl || committedUrl || previewUrl;
   const activeFrame =
     frames.find((f) => f.previewUrl === displayUrl) ||
     frames.find((f) => f.frameIndex === state.activeFrameIndex) ||
-    frames[frames.length - 1] ||
+    readyFrames[readyFrames.length - 1] ||
     null;
   const activeGenId = activeFrame?.generationId || state.generationId;
   const lightboxIndex = Math.max(
     0,
-    frames.findIndex((f) => f.previewUrl === displayUrl),
+    readyFrames.findIndex((f) => f.previewUrl === displayUrl),
   );
-  const multi = frames.length > 1;
   const imageTitle = useMemo(() => titleFromPrompt(state.prompt), [state.prompt]);
   const pathLabel = useMemo(
     () => `Agent / Images / ${isDraft ? 'Draft' : 'Library'} / ${shortId(activeGenId)}`,
@@ -115,12 +133,12 @@ export function AgentImageGenerationCard({
 
   const stepLightbox = useCallback(
     (delta: number) => {
-      if (frames.length < 2) return;
+      if (readyFrames.length < 2) return;
       const i = lightboxIndex >= 0 ? lightboxIndex : 0;
-      const next = frames[(i + delta + frames.length) % frames.length];
+      const next = readyFrames[(i + delta + readyFrames.length) % readyFrames.length];
       if (next?.previewUrl) setLightboxFocusUrl(next.previewUrl);
     },
-    [frames, lightboxIndex],
+    [readyFrames, lightboxIndex],
   );
 
   useEffect(() => {
@@ -312,30 +330,53 @@ export function AgentImageGenerationCard({
   return (
     <>
       <div
-        className={`iam-image-gen${isComplete ? ' iam-image-gen--ready' : ' iam-image-gen--pending'}`}
+        className={`iam-image-gen${isComplete ? ' iam-image-gen--ready' : ' iam-image-gen--pending'}${
+          multi ? ' iam-image-gen--multi' : ''
+        }`}
         aria-busy={!isComplete}
       >
         {!isComplete ? (
           <p className="iam-image-gen-status" aria-live="polite">
-            {state.message?.trim() || 'Generating image…'}
+            {state.message?.trim() ||
+              (multi
+                ? `Creating ${frames.length} images… (${readyFrames.length}/${frames.length})`
+                : 'Generating image…')}
           </p>
         ) : null}
-        {frames.length > 1 ? (
+        {multi ? (
           <div className="iam-image-gen-variants" role="list">
-            {frames.map((frame) => (
-              <button
-                key={`${frame.frameIndex}-${frame.previewUrl}`}
-                type="button"
-                className={`iam-image-gen-variants__item${
-                  frame.frameIndex === state.activeFrameIndex ? ' is-active' : ''
-                }${!isComplete ? ' is-pending' : ''}`}
-                role="listitem"
-                onClick={() => openLightbox(frame.previewUrl)}
-                aria-label={`Open variation ${frame.frameIndex + 1}`}
-              >
-                <img src={frame.previewUrl} alt="" draggable={false} />
-              </button>
-            ))}
+            {frames.map((frame) => {
+              const frameDone = Boolean(frame.previewUrl) && (frame.phase === 'completed' || isComplete);
+              const framePhase = frame.failed
+                ? 'failed'
+                : frameDone
+                  ? 'completed'
+                  : frame.phase || state.phase;
+              const frameProgress = frameDone ? 100 : (frame.progress ?? state.progress);
+              return (
+                <div
+                  key={`slot-${frame.frameIndex}`}
+                  className={`iam-image-gen-variants__item${
+                    frame.frameIndex === state.activeFrameIndex ? ' is-active' : ''
+                  }${!frameDone ? ' is-pending' : ''}${frame.failed ? ' is-failed' : ''}`}
+                  role="listitem"
+                >
+                  <span className="iam-image-gen-variants__label">
+                    {frame.message?.trim() ||
+                      (frameDone
+                        ? `Variation ${frame.frameIndex + 1}`
+                        : `Variation ${frame.frameIndex + 1}…`)}
+                  </span>
+                  <ProgressiveImagePreview
+                    phase={framePhase}
+                    progress={frameProgress}
+                    previewUrl={frame.previewUrl}
+                    finalUrl={frame.previewUrl}
+                    onImageClick={frame.previewUrl ? openLightbox : undefined}
+                  />
+                </div>
+              );
+            })}
           </div>
         ) : (
           <ProgressiveImagePreview
@@ -382,7 +423,9 @@ export function AgentImageGenerationCard({
                   <div className="iam-image-gen-lightbox__meta">
                     <p id={pathId} className="iam-image-gen-lightbox__path">
                       {pathLabel}
-                      {multi ? ` · ${lightboxIndex + 1} / ${frames.length}` : ''}
+                      {readyFrames.length > 1
+                        ? ` · ${lightboxIndex + 1} / ${readyFrames.length}`
+                        : ''}
                     </p>
                     <h2 id={titleId} className="iam-image-gen-lightbox__title">
                       {imageTitle}
@@ -423,7 +466,7 @@ export function AgentImageGenerationCard({
                   </div>
                 </header>
                 <div className="iam-image-gen-lightbox__stage">
-                  {multi ? (
+                  {readyFrames.length > 1 ? (
                     <button
                       type="button"
                       className="iam-image-gen-lightbox__nav iam-image-gen-lightbox__nav--prev"
@@ -434,7 +477,7 @@ export function AgentImageGenerationCard({
                     </button>
                   ) : null}
                   <img src={displayUrl} alt={imageTitle} />
-                  {multi ? (
+                  {readyFrames.length > 1 ? (
                     <button
                       type="button"
                       className="iam-image-gen-lightbox__nav iam-image-gen-lightbox__nav--next"

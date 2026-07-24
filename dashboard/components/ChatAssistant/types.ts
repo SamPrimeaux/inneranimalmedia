@@ -94,9 +94,14 @@ export type ImageGenerationPhase =
 
 export type ImageGenerationPreviewFrame = {
   frameIndex: number;
-  previewUrl: string;
+  /** Empty while the slot is still initializing / progressing. */
+  previewUrl?: string;
   /** Per-variation draft id when fan-out emits distinct generation_ids. */
   generationId?: string;
+  phase?: ImageGenerationPhase;
+  progress?: number;
+  message?: string;
+  failed?: boolean;
 };
 
 /** Progressive image generation card state (SSE `image_generation_*`). */
@@ -113,6 +118,8 @@ export type ImageGenerationState = {
   message: string;
   previewFrames: ImageGenerationPreviewFrame[];
   activeFrameIndex: number;
+  /** When >1, UI reserves this many progressive slots immediately. */
+  variationCount?: number;
   imageUrl?: string;
   previewUrl?: string;
   /** draft | saved — API-enforced lifecycle */

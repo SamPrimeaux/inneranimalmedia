@@ -422,20 +422,22 @@
 
 .iam-image-gen-variants {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem;
   width: 100%;
 }
 
 .iam-image-gen-variants__item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   margin: 0;
-  padding: 0;
+  padding: 0.35rem;
   border: 1px solid transparent;
   border-radius: 0.5rem;
   overflow: hidden;
   background: #0b0d10;
-  cursor: zoom-in;
+  min-height: 120px;
 }
 
 .iam-image-gen-variants__item.is-active {
@@ -443,7 +445,27 @@
 }
 
 .iam-image-gen-variants__item.is-pending {
-  opacity: 0.92;
+  opacity: 0.96;
+}
+
+.iam-image-gen-variants__item.is-failed {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.iam-image-gen-variants__label {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: var(--dashboard-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0.15rem;
+}
+
+.iam-image-gen-variants__item .iam-image-gen-preview {
+  min-height: 110px;
+  border-radius: 0.35rem;
 }
 
 .iam-image-gen-variants__item img {
@@ -452,4 +474,8 @@
   height: auto;
   aspect-ratio: 4 / 3;
   object-fit: cover;
+}
+
+.iam-image-gen--multi .iam-image-gen-status {
+  margin-bottom: 0.35rem;
 }

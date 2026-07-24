@@ -291,6 +291,20 @@ export function normalizeImageGenerationEvent(
   if (!generationId) return null;
 
   if (eventType === 'image_generation_started') {
+    const variationCountRaw = Number(o.variation_count ?? o.variations ?? 0);
+    const variationCount =
+      Number.isFinite(variationCountRaw) && variationCountRaw > 1
+        ? Math.min(4, Math.floor(variationCountRaw))
+        : 1;
+    const previewFrames: ImageGenerationPreviewFrame[] =
+      variationCount > 1
+        ? Array.from({ length: variationCount }, (_, i) => ({
+            frameIndex: i,
+            phase: 'initializing' as const,
+            progress: 0,
+            message: `Variation ${i + 1} of ${variationCount}…`,
+          }))
+        : [];
     return {
       eventType,
       patch: {
@@ -302,9 +316,13 @@ export function normalizeImageGenerationEvent(
         width: typeof o.width === 'number' ? o.width : undefined,
         height: typeof o.height === 'number' ? o.height : undefined,
         progress: 0,
-        message: 'Creating image…',
-        previewFrames: [],
+        message:
+          variationCount > 1
+            ? `Creating ${variationCount} images…`
+            : 'Creating image…',
+        previewFrames,
         activeFrameIndex: 0,
+        variationCount,
         failed: false,
       },
     };
@@ -313,6 +331,15 @@ export function normalizeImageGenerationEvent(
   if (eventType === 'image_generation_progress') {
     const progress = typeof o.progress === 'number' ? Math.max(0, Math.min(100, o.progress)) : 0;
     const failed = o.failed === true || o.stage === 'failed';
+    const variationIndex =
+      typeof o.variation_index === 'number' && Number.isFinite(o.variation_index)
+        ? Math.max(0, Math.floor(o.variation_index))
+        : typeof o.frame_index === 'number' && Number.isFinite(o.frame_index)
+          ? Math.max(0, Math.floor(o.frame_index))
+          : typeof o.preview_frame === 'number' && Number.isFinite(o.preview_frame)
+            ? Math.max(0, Math.floor(o.preview_frame))
+            : null;
+    const message = typeof o.message === 'string' ? o.message : 'Working…';
     return {
       eventType,
       patch: {
@@ -320,22 +347,51 @@ export function normalizeImageGenerationEvent(
         phase: phaseFromProgress(progress, failed),
         progress,
         stage: typeof o.stage === 'string' ? o.stage : undefined,
-        message: typeof o.message === 'string' ? o.message : 'Working…',
+        message,
         failed,
+        ...(variationIndex != null
+          ? {
+              activeFrameIndex: variationIndex,
+              previewFrames: [
+                {
+                  frameIndex: variationIndex,
+                  generationId,
+                  phase: phaseFromProgress(progress, failed),
+                  progress,
+                  message,
+                  failed,
+                },
+              ],
+            }
+          : {}),
       },
     };
   }
 
   if (eventType === 'image_generation_preview') {
     const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : '';
-    const frameIndex = typeof o.frame_index === 'number' ? o.frame_index : 0;
+    const frameIndex =
+      typeof o.frame_index === 'number' && Number.isFinite(o.frame_index)
+        ? Math.max(0, Math.floor(o.frame_index))
+        : typeof o.variation_index === 'number' && Number.isFinite(o.variation_index)
+          ? Math.max(0, Math.floor(o.variation_index))
+          : 0;
     if (!previewUrl) return null;
     return {
       eventType,
       patch: {
         generationId,
         phase: 'generating',
-        previewFrames: [{ frameIndex, previewUrl, generationId }],
+        previewFrames: [
+          {
+            frameIndex,
+            previewUrl,
+            generationId,
+            phase: 'generating',
+            progress: 70,
+            message: `Variation ${frameIndex + 1} preview…`,
+          },
+        ],
         activeFrameIndex: frameIndex,
       },
     };
@@ -344,7 +400,16 @@ export function normalizeImageGenerationEvent(
   if (eventType === 'image_generation_complete') {
     const imageUrl = typeof o.image_url === 'string' ? o.image_url.trim() : '';
     const previewUrl = typeof o.preview_url === 'string' ? o.preview_url.trim() : imageUrl;
-    const status = typeof o.status === 'string' ? o.status : imageUrl ? 'draft' : 'completed';
+    const statusRaw = typeof o.status === 'string' ? o.status : imageUrl ? 'draft' : 'completed';
+    const failed = o.failed === true || statusRaw === 'failed';
+    const status: 'draft' | 'saved' | 'discarded' | undefined =
+      statusRaw === 'draft' || statusRaw === 'saved' || statusRaw === 'discarded'
+        ? statusRaw
+        : failed
+          ? undefined
+          : imageUrl
+            ? 'draft'
+            : undefined;
     const explicitFrame =
       typeof o.frame_index === 'number' && Number.isFinite(o.frame_index)
         ? Math.max(0, Math.floor(o.frame_index))
@@ -357,12 +422,19 @@ export function normalizeImageGenerationEvent(
       if (!u) return;
       const existing = previewFrames.find((f) => f.previewUrl === u || f.frameIndex === frameIndex);
       if (existing) {
-        if (frameGenId && !existing.generationId) existing.generationId = frameGenId;
+        existing.previewUrl = u;
+        existing.phase = failed ? 'failed' : 'completed';
+        existing.progress = failed ? existing.progress ?? 0 : 100;
+        existing.failed = failed;
+        if (frameGenId) existing.generationId = frameGenId;
         return;
       }
       previewFrames.push({
         frameIndex,
         previewUrl: u,
+        phase: failed ? 'failed' : 'completed',
+        progress: failed ? 0 : 100,
+        failed,
         ...(frameGenId ? { generationId: frameGenId } : {}),
       });
     };
@@ -395,6 +467,15 @@ export function normalizeImageGenerationEvent(
     // Per-variation completes must keep their slot — never collapse to frame 0.
     if (previewFrames.length === 0 && (previewUrl || imageUrl)) {
       pushFrame(previewUrl || imageUrl, explicitFrame ?? 0, generationId);
+    } else if (previewFrames.length === 0 && failed) {
+      previewFrames.push({
+        frameIndex: explicitFrame ?? 0,
+        phase: 'failed',
+        progress: 0,
+        failed: true,
+        message: typeof o.error === 'string' ? o.error : 'Variation failed',
+        generationId,
+      });
     } else {
       if (previewUrl) pushFrame(previewUrl, explicitFrame ?? previewFrames.length, generationId);
       if (imageUrl && imageUrl !== previewUrl) {
@@ -405,9 +486,14 @@ export function normalizeImageGenerationEvent(
       eventType,
       patch: {
         generationId,
-        phase: 'completed',
-        progress: 100,
-        message: '',
+        // Merge decides batch completion when variationCount > 1.
+        phase: failed ? 'failed' : 'completed',
+        progress: failed ? 0 : 100,
+        message: failed
+          ? typeof o.error === 'string'
+            ? o.error
+            : 'Variation failed'
+          : '',
         imageUrl: previewUrl || imageUrl || undefined,
         previewUrl: previewUrl || imageUrl || undefined,
         ...(previewFrames.length
@@ -425,7 +511,7 @@ export function normalizeImageGenerationEvent(
         provider: typeof o.provider === 'string' ? o.provider : undefined,
         model: typeof o.model === 'string' ? o.model : undefined,
         prompt: typeof o.prompt === 'string' ? o.prompt : undefined,
-        failed: Boolean(o.failed),
+        failed,
         contentTier:
           typeof o.content_tier === 'string'
             ? o.content_tier

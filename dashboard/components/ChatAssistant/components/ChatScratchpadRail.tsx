@@ -185,12 +185,27 @@ export const ChatScratchpadRail: FC<Props> = ({ messages, onOpenFile }) => {
     })),
   );
 
-  const generated: GeneratedFile[] = messages.flatMap((m, mi) =>
-    (m.agentFiles ?? []).map((f, fi) => ({
+  const generated: GeneratedFile[] = messages.flatMap((m, mi) => {
+    const fromAgent = (m.agentFiles ?? []).map((f, fi) => ({
       key: `gen-${mi}-${fi}`,
       file: f,
-    })),
-  );
+    }));
+    if (fromAgent.length) return fromAgent;
+    // Fallback: derive from image card frames when stamp path missed a slot.
+    const frames = (m.imageGenerationState?.previewFrames ?? []).filter((f) => f.previewUrl);
+    return frames.map((f, fi) => {
+      const filename = `variation-${f.frameIndex + 1}.jpg`;
+      return {
+        key: `ig-${mi}-${fi}`,
+        file: {
+          filename,
+          r2Url: f.previewUrl,
+          workspacePath: `images/${filename}`,
+          kind: 'image' as const,
+        },
+      };
+    });
+  });
 
   const empty = uploaded.length === 0 && generated.length === 0;
 

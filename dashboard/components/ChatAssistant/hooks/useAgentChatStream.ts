@@ -288,18 +288,24 @@ function mergeImageGenerationState(
   };
 
   let previewFrames = base.previewFrames;
-  if (
-    (eventType === 'image_generation_preview' || eventType === 'image_generation_complete') &&
-    patch.previewFrames?.length
-  ) {
+  if (patch.previewFrames?.length) {
     const next = [...base.previewFrames];
     for (const frame of patch.previewFrames) {
-      const idx = next.findIndex((f) => f.frameIndex === frame.frameIndex || f.previewUrl === frame.previewUrl);
+      const idx = next.findIndex(
+        (f) =>
+          f.frameIndex === frame.frameIndex ||
+          (frame.previewUrl && f.previewUrl && f.previewUrl === frame.previewUrl),
+      );
       if (idx >= 0) {
         next[idx] = {
           ...next[idx],
           ...frame,
+          previewUrl: frame.previewUrl || next[idx].previewUrl,
           generationId: frame.generationId || next[idx].generationId,
+          phase: frame.phase ?? next[idx].phase,
+          progress: frame.progress ?? next[idx].progress,
+          message: frame.message ?? next[idx].message,
+          failed: frame.failed ?? next[idx].failed,
         };
       } else next.push(frame);
     }
@@ -307,8 +313,67 @@ function mergeImageGenerationState(
     previewFrames = next;
   }
 
+  // Never shrink reserved multi-variation slots once started.
+  const variationCount = Math.max(
+    patch.variationCount ?? 0,
+    base.variationCount ?? 0,
+    previewFrames.length > 1 ? previewFrames.length : 0,
+  );
+  if (variationCount > 1 && previewFrames.length < variationCount) {
+    const byIndex = new Map(previewFrames.map((f) => [f.frameIndex, f]));
+    previewFrames = Array.from({ length: variationCount }, (_, i) => {
+      const existing = byIndex.get(i);
+      if (existing) return existing;
+      return {
+        frameIndex: i,
+        phase: 'initializing' as const,
+        progress: 0,
+        message: `Variation ${i + 1} of ${variationCount}…`,
+      };
+    });
+  }
+
   const activeFrameIndex =
     patch.activeFrameIndex != null ? patch.activeFrameIndex : base.activeFrameIndex;
+
+  // Batch is complete only when every reserved slot has a URL (or failed).
+  let phase = patch.phase ?? base.phase;
+  let progress = patch.progress ?? base.progress;
+  let message = patch.message !== undefined ? patch.message : base.message;
+  let failed = patch.failed ?? base.failed;
+  if (variationCount > 1) {
+    const doneSlots = previewFrames.filter((f) => f.previewUrl || f.failed).length;
+    const allDone = doneSlots >= variationCount;
+    const anyOk = previewFrames.some((f) => Boolean(f.previewUrl) && !f.failed);
+    if (!allDone) {
+      failed = false;
+      phase =
+        previewFrames.some((f) => f.phase === 'refining' || f.phase === 'generating')
+          ? 'generating'
+          : 'initializing';
+      progress = Math.round(
+        previewFrames.reduce((sum, f) => sum + (f.progress ?? 0), 0) / variationCount,
+      );
+      const active =
+        previewFrames.find((f) => f.frameIndex === activeFrameIndex) ||
+        previewFrames.find((f) => !f.previewUrl && !f.failed);
+      message = active?.message || `Creating ${variationCount} images… (${doneSlots}/${variationCount})`;
+    } else if (anyOk) {
+      failed = false;
+      phase = 'completed';
+      progress = 100;
+      message = '';
+    } else {
+      failed = true;
+      phase = 'failed';
+      progress = 0;
+      message =
+        previewFrames.find((f) => f.failed)?.message ||
+        patch.message ||
+        base.message ||
+        'Image generation failed';
+    }
+  }
 
   return {
     ...base,
@@ -316,8 +381,12 @@ function mergeImageGenerationState(
     generationId,
     previewFrames,
     activeFrameIndex,
+    variationCount: variationCount > 1 ? variationCount : patch.variationCount ?? base.variationCount,
+    phase,
+    progress,
+    failed,
     imageUrl: patch.imageUrl ?? base.imageUrl,
-    message: patch.message !== undefined ? patch.message : base.message,
+    message,
   };
 }
 
@@ -407,13 +476,17 @@ function patchAssistantImageGeneration(
     }
     // Also derive scratchpad entries from accumulated frames (belt-and-suspenders).
     if (merged.previewFrames?.length) {
-      const fromFrames = agentFilesFromImageSse({
-        preview_urls: merged.previewFrames
-          .slice()
-          .sort((a, b) => a.frameIndex - b.frameIndex)
-          .map((f) => f.previewUrl),
-        generation_id: merged.generationId,
-      });
+      const fromFrames: AgentGeneratedFile[] = merged.previewFrames
+        .filter((f) => Boolean(f.previewUrl))
+        .map((f) => {
+          const filename = `variation-${f.frameIndex + 1}.jpg`;
+          return {
+            filename,
+            r2Url: f.previewUrl,
+            workspacePath: `images/${filename}`,
+            kind: 'image' as const,
+          };
+        });
       const seen = new Set(
         agentFiles.map((x) => x.r2Url || x.workspacePath || x.filename).filter(Boolean) as string[],
       );

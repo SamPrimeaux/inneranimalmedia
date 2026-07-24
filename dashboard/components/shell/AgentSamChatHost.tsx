@@ -100,13 +100,18 @@ export function AgentSamChatHost({
   const [scratchpadOpen, setScratchpadOpen] = useState(false);
   const autoOpenedRef = useRef(false);
 
-  // Total files across all messages (uploaded attachments + agent-generated).
+  // Total files across all messages (uploaded attachments + agent-generated + image frames).
   const scratchpadFileCount = useMemo(() => {
     if (!messages) return 0;
     let n = 0;
     for (const m of messages) {
       n += (m.attachmentPreviews ?? []).length;
-      n += (m.agentFiles ?? []).length;
+      const agentN = (m.agentFiles ?? []).length;
+      if (agentN > 0) {
+        n += agentN;
+      } else {
+        n += (m.imageGenerationState?.previewFrames ?? []).filter((f) => f.previewUrl).length;
+      }
     }
     return n;
   }, [messages]);
