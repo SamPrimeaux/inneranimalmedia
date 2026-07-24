@@ -252,7 +252,12 @@ export function ImagesDetailPage() {
     return JSON.stringify(raw, null, 2);
   }, [img]);
 
-  const btn = (label: string, icon: React.ReactNode, onClick: () => void, primary?: boolean) => (
+  const btn = (
+    label: string,
+    icon: React.ReactNode,
+    onClick: () => void,
+    variant?: 'primary' | 'danger',
+  ) => (
     <button
       type="button"
       onClick={onClick}
@@ -262,11 +267,12 @@ export function ImagesDetailPage() {
         gap: 6,
         padding: '7px 12px',
         borderRadius: 8,
-        border: primary ? 'none' : '1px solid var(--border-subtle)',
-        background: primary ? 'var(--solar-cyan)' : 'var(--bg-elevated)',
-        color: primary ? '#000' : 'var(--text-main)',
+        border: variant ? 'none' : '1px solid var(--border-subtle)',
+        background:
+          variant === 'danger' ? '#dc2626' : variant === 'primary' ? 'var(--solar-cyan)' : 'var(--bg-elevated)',
+        color: variant === 'danger' ? '#fff' : variant === 'primary' ? '#000' : 'var(--text-main)',
         fontSize: 12,
-        fontWeight: primary ? 600 : 400,
+        fontWeight: variant ? 600 : 400,
         cursor: 'pointer',
         fontFamily: 'inherit',
       }}
