@@ -353,8 +353,8 @@ export function ImagesDetailPage() {
           {btn('Edit', <Pencil size={13} />, () =>
             navigate(`/dashboard/images/${encodeURIComponent(img.id)}/edit`),
           )}
-          {btn('Share', <Share2 size={13} />, () => setShareOpen(true), true)}
-          {btn('Delete', <Trash2 size={13} />, () => void onDelete())}
+          {btn('Share', <Share2 size={13} />, () => setShareOpen(true), 'primary')}
+          {btn('Delete', <Trash2 size={13} />, () => void onDelete(), 'danger')}
         </div>
       </div>
 
