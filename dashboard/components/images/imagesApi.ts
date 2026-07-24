@@ -53,6 +53,42 @@ export function imagesResourceTagsCatalogUrl() {
   return '/api/images/resource-tags/catalog';
 }
 
+/**
+ * Real, account-configured named Variant dimensions from Cloudflare Images —
+ * NOT the same as dashboard/components/images/imagesRegistry.ts's
+ * NAMED_VARIANTS constant, which is a hardcoded client-side fallback only.
+ * Named variants are account-specific (e.g. "public" and "large" can be
+ * configured to any dimensions) — always prefer this real catalog when it's
+ * available.
+ */
+export function imagesVariantsCatalogUrl() {
+  return '/api/images/variants/catalog';
+}
+
+export type CfVariantDef = {
+  id: string;
+  width: number | null;
+  height: number | null;
+  fit: string | null;
+};
+
+/**
+ * Fetches the real variant catalog. Returns null (not an empty array) on
+ * failure so callers can distinguish "CF returned zero variants" from
+ * "the fetch failed, fall back to the static guesses."
+ */
+export async function fetchRealVariantsCatalog(): Promise<CfVariantDef[] | null> {
+  try {
+    const r = await fetch(imagesVariantsCatalogUrl(), { credentials: 'same-origin' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (!d?.ok || !Array.isArray(d.variants)) return null;
+    return d.variants;
+  } catch {
+    return null;
+  }
+}
+
 export function imagesResourceTagsUrl(imageId: string, workspaceId?: string | null) {
   const ws = workspaceId?.trim();
   const base = `/api/images/${encodeURIComponent(imageId)}/resource-tags`;
