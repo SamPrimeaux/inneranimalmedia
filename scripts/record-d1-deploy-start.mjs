@@ -95,7 +95,10 @@ async function main() {
   };
 
   addField('id', sqlString(runGroupId));
-  addField('timestamp', `datetime('now')`);
+  addField('timestamp', `strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`);
+  if (depCols.has('timestamp_unix')) {
+    addField('timestamp_unix', 'unixepoch()');
+  }
   addField('version', sqlString(version));
   addField('git_hash', gitHash ? sqlString(gitHash) : 'NULL');
   addField('description', 'NULL', false);
@@ -124,10 +127,19 @@ async function main() {
     addField('triggered_by', sqlString(triggeredBy));
   }
   if (depCols.has('created_at')) {
-    addField('created_at', 'unixepoch()', false);
+    addField('created_at', `strftime('%Y-%m-%dT%H:%M:%SZ', 'now')`, false);
+  }
+  if (depCols.has('created_at_unix')) {
+    addField('created_at_unix', 'unixepoch()', false);
   }
   if (depCols.has('notes')) {
     addField('notes', 'NULL', false);
+  }
+  if (depCols.has('error_message')) {
+    addField('error_message', 'NULL', false);
+  }
+  if (depCols.has('failure_reason')) {
+    addField('failure_reason', 'NULL', false);
   }
 
   const conflictTarget = depCols.has('id') ? 'id' : null;

@@ -15,17 +15,24 @@
 # DEPLOYMENT_NOTES='brief description' so deployments.triggered_by / notes reflect the agent.
 # Example: TRIGGERED_BY=agent DEPLOYMENT_NOTES='AI Gateway + R2 upload' npm run deploy
 #
-# Timestamp: uses deploy machine local wall clock (date), not D1 UTC datetime('now').
-# Override: DEPLOY_TIMESTAMP='2026-03-24 21:36:00'
+# Timestamp: Law 2 — integer unixepoch seconds (UTC). TEXT dual-write is UTC ISO for legacy UI.
+# Override: DEPLOY_TIMESTAMP_UNIX=1710000000  (or DEPLOY_TIMESTAMP legacy text — converted when possible)
 #
-# DORA/spend attribution: TENANT_ID, WORKSPACE_ID, PROJECT_ID default to the IAM platform
-# scope below. Override per-project (e.g. fuelnfreetime's own deploy pipeline) by exporting
-# these before calling this script -- do not rely on the defaults outside this repo.
+# Cross-repo trail (e.g. MCP worker): set DEPLOY_GIT_ROOT to that repo for SHA/message;
+# this script still lives in inneranimalmedia and uses wrangler.production.toml for D1.
+# Example:
+#   WORKER_NAME=inneranimalmedia-mcp-server PROJECT_ID=inneranimalmedia-mcp-server \
+#   SKIP_DASHBOARD_VERSIONS=1 ALLOW_SKIP_DEPLOY_TRAIL=1 \
+#   DEPLOY_GIT_ROOT=/path/to/inneranimalmedia-mcp-server \
+#   bash scripts/post-deploy-record.sh
+
 
 set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 CONFIG="$REPO_ROOT/wrangler.production.toml"
+# Git identity may come from another repo (MCP) while D1 writes stay on this platform DB.
+GIT_ROOT="$(cd "${DEPLOY_GIT_ROOT:-$REPO_ROOT}" && pwd)"
 # shellcheck source=scripts/lib/load-deploy-env.sh
 source "$REPO_ROOT/scripts/lib/load-deploy-env.sh"
 
@@ -97,14 +104,14 @@ DEPLOY_DURATION_MS=$((DEPLOY_SECONDS * 1000))
 TRIGGERED_BY="${TRIGGERED_BY:-cli_post_deploy}"
 DEPLOYMENT_NOTES="${DEPLOYMENT_NOTES:-}"
 DEPLOY_VERSION="${DEPLOY_VERSION:-}"
-GIT_FULL="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo '')"
+GIT_FULL="$(git -C "$GIT_ROOT" rev-parse HEAD 2>/dev/null || echo '')"
 if [[ ! "$GIT_FULL" =~ ^[0-9a-f]{40}$ ]]; then
-  echo "[post-deploy-record] FATAL: could not resolve full 40-char git SHA (got: '${GIT_FULL}')" >&2
+  echo "[post-deploy-record] FATAL: could not resolve full 40-char git SHA from GIT_ROOT=$GIT_ROOT (got: '${GIT_FULL}')" >&2
   echo "[post-deploy-record] refusing to write any trail row — no short-hash fallback permitted" >&2
   exit 1
 fi
 GIT_HASH="$GIT_FULL"
-GIT_MSG="$(git -C "$REPO_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
+GIT_MSG="$(git -C "$GIT_ROOT" log -1 --pretty=format:'%s' 2>/dev/null || echo '')"
 VERSION_SLUG="${DEPLOY_VERSION:-$GIT_FULL}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
 # Prefer explicit DEPLOY_DESCRIPTION / DEPLOYMENT_NOTES; else use commit subject.
@@ -134,31 +141,31 @@ resolve_changed_files_json() {
     echo "[post-deploy-record] FATAL: jq required to build changed_files" >&2
     return 1
   fi
-  if [[ ! -d "$REPO_ROOT/.git" ]]; then
-    echo "[post-deploy-record] FATAL: .git missing — cannot resolve changed_files" >&2
+  if [[ ! -d "$GIT_ROOT/.git" ]]; then
+    echo "[post-deploy-record] FATAL: .git missing at GIT_ROOT=$GIT_ROOT — cannot resolve changed_files" >&2
     return 1
   fi
 
   local paths=""
   # 1) Files in tip commit (shallow-clone safe)
-  paths="$(git -C "$REPO_ROOT" show --name-only --pretty=format: HEAD 2>/dev/null || true)"
+  paths="$(git -C "$GIT_ROOT" show --name-only --pretty=format: HEAD 2>/dev/null || true)"
   # 2) Parent diff
   if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
-    paths="$(git -C "$REPO_ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || true)"
+    paths="$(git -C "$GIT_ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || true)"
   fi
   if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
-    paths="$(git -C "$REPO_ROOT" diff --name-only 'HEAD^' HEAD 2>/dev/null || true)"
+    paths="$(git -C "$GIT_ROOT" diff --name-only 'HEAD^' HEAD 2>/dev/null || true)"
   fi
   # 3) Diff vs previous deployment git_hash (when provided by caller / CF)
   if [[ -z "$(echo "$paths" | tr -d '[:space:]')" && -n "${PREV_DEPLOY_GIT_HASH:-}" ]]; then
-    paths="$(git -C "$REPO_ROOT" diff --name-only "${PREV_DEPLOY_GIT_HASH}" HEAD 2>/dev/null || true)"
+    paths="$(git -C "$GIT_ROOT" diff --name-only "${PREV_DEPLOY_GIT_HASH}" HEAD 2>/dev/null || true)"
   fi
   # 4) Uncommitted / staged (local operator edge case)
   if [[ -z "$(echo "$paths" | tr -d '[:space:]')" ]]; then
     paths="$(
       {
-        git -C "$REPO_ROOT" diff --name-only HEAD 2>/dev/null || true
-        git -C "$REPO_ROOT" diff --name-only --cached 2>/dev/null || true
+        git -C "$GIT_ROOT" diff --name-only HEAD 2>/dev/null || true
+        git -C "$GIT_ROOT" diff --name-only --cached 2>/dev/null || true
       } | sort -u
     )"
   fi
@@ -212,8 +219,17 @@ CHANGED_FILES="$(resolve_changed_files_json)" || {
 CHANGED_FILES="$(cap_changed_files_json "$CHANGED_FILES")"
 echo "[post-deploy-record] changed_files=$(echo "$CHANGED_FILES" | head -c 200)…"
 
-DEPLOY_TIMESTAMP="${DEPLOY_TIMESTAMP:-$(date '+%Y-%m-%d %H:%M:%S')}"
-DEPLOY_CREATED_AT="${DEPLOY_CREATED_AT:-$DEPLOY_TIMESTAMP}"
+# Law 2: integer unixepoch seconds (UTC). Dual-write TEXT as UTC ISO for legacy readers.
+if [[ -n "${DEPLOY_TIMESTAMP_UNIX:-}" && "$DEPLOY_TIMESTAMP_UNIX" =~ ^[0-9]+$ ]]; then
+  DEPLOY_TS_UNIX="$DEPLOY_TIMESTAMP_UNIX"
+else
+  DEPLOY_TS_UNIX="$(date -u +%s)"
+fi
+DEPLOY_TIMESTAMP_ISO="$(date -u -r "$DEPLOY_TS_UNIX" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d "@$DEPLOY_TS_UNIX" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u '+%Y-%m-%dT%H:%M:%SZ')"
+# Legacy TEXT columns: UTC ISO (not host-local naive wall clock).
+DEPLOY_TIMESTAMP="${DEPLOY_TIMESTAMP:-$DEPLOY_TIMESTAMP_ISO}"
+DEPLOY_CREATED_AT="${DEPLOY_CREATED_AT:-$DEPLOY_TIMESTAMP_ISO}"
+DEPLOY_CREATED_UNIX="${DEPLOY_CREATED_AT_UNIX:-$DEPLOY_TS_UNIX}"
 
 # Escape single quotes for SQL: ' -> ''
 sql_esc() { printf '%s' "${1//\'/\'\'}"; }
@@ -281,15 +297,17 @@ if command -v jq >/dev/null 2>&1; then
 fi
 DEP_META_ESC="$(sql_esc "$DEP_META")"
 
-echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp=$DEPLOY_TIMESTAMP local, deploy_time_seconds=$DEPLOY_SECONDS, triggered_by=$TRIGGERED_BY, tenant_id=$TENANT_ID, workspace_id=$WORKSPACE_ID, project_id=${PROJECT_ID:-<null>})"
+echo "Recording deploy in D1 (deployments.id=$VERSION_ID, timestamp_unix=$DEPLOY_TS_UNIX UTC, deploy_time_seconds=$DEPLOY_SECONDS, triggered_by=$TRIGGERED_BY, tenant_id=$TENANT_ID, workspace_id=$WORKSPACE_ID, project_id=${PROJECT_ID:-<null>}, worker_name=$WORKER_NAME, git_root=$GIT_ROOT)"
 if ! d1_exec_sql "deployments_insert" "INSERT INTO deployments (
   id, timestamp, version, git_hash, changed_files, description, status, deployed_by, environment,
   deploy_duration_ms, rollback_from, notes, created_at, deploy_time_seconds, worker_name, triggered_by,
-  tenant_id, workspace_id, project_id, run_group_id, metadata_json
+  tenant_id, workspace_id, project_id, run_group_id, metadata_json,
+  timestamp_unix, created_at_unix, error_message, failure_reason
 ) VALUES (
   '$VID_ESC', '$TS_ESC', '$VS_ESC', '$GH_ESC', '$CF_ESC', '$DESC_ESC', 'success', '$DBY_ESC', '$ENV_ESC',
   $DEPLOY_DURATION_MS, '$RF_ESC', '$DN_ESC', '$CA_ESC', $DEPLOY_SECONDS, '$WN_ESC', '$TB_ESC',
-  '$TID_ESC', '$WID_ESC', '$PID_ESC', '$RG_ESC', '$DEP_META_ESC'
+  '$TID_ESC', '$WID_ESC', '$PID_ESC', '$RG_ESC', '$DEP_META_ESC',
+  $DEPLOY_TS_UNIX, $DEPLOY_CREATED_UNIX, NULL, NULL
 )"; then
   echo "[post-deploy-record] FATAL: deployments INSERT failed" >&2
   _TRAIL_NOTIFY_DONE=1

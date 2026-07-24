@@ -359,8 +359,12 @@ async function handleOverviewActivityStrip(authUser, env) {
 
 async function handleOverviewDeployments(env) {
   const { results: deployments } = await env.DB.prepare(
-    `SELECT worker_name, environment, status, timestamp AS deployed_at, notes AS deployment_notes
-     FROM deployments ORDER BY timestamp DESC LIMIT 20`
+    `SELECT worker_name, environment, status,
+            COALESCE(timestamp_unix, CAST(strftime('%s', timestamp) AS INTEGER)) AS deployed_at_unix,
+            timestamp AS deployed_at, notes AS deployment_notes, git_hash, id
+     FROM deployments
+     ORDER BY COALESCE(timestamp_unix, 0) DESC, timestamp DESC
+     LIMIT 20`,
   ).all();
   const cicd = await fetchCicdPipelineRunsForOverview(env);
   return jsonResponse({ deployments: deployments || [], cicd_runs: cicd || [] });

@@ -17,6 +17,7 @@ const POLL_MS = Number(process.env.DEPLOY_TRAIL_GATE_POLL_MS || 3_000);
 const DEPLOYMENTS_REQUIRED = [
   'id',
   'timestamp',
+  'timestamp_unix',
   'version',
   'git_hash',
   'changed_files',
@@ -28,6 +29,7 @@ const DEPLOYMENTS_REQUIRED = [
   'rollback_from',
   'notes',
   'created_at',
+  'created_at_unix',
   'deploy_time_seconds',
   'worker_name',
   'triggered_by',
@@ -118,6 +120,8 @@ function isCompleteDeployment(row) {
   if (!isFullSha(row.git_hash)) return false;
   if (missingCols(row, DEPLOYMENTS_REQUIRED).length) return false;
   if (!changedFilesOk(row.changed_files)) return false;
+  const tsUnix = Number(row.timestamp_unix);
+  if (!Number.isFinite(tsUnix) || tsUnix <= 0) return false;
   return true;
 }
 
@@ -160,8 +164,13 @@ function checkOnce(hashes) {
 
   const incomplete = deps.filter((d) => !isCompleteDeployment(d));
   const complete = deps.find((d) => isCompleteDeployment(d)) || null;
-  // Newest by wall-clock timestamp (what Overview shows) — empty twin is a hard fail.
-  const byTs = [...deps].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  // Newest by epoch (SSOT); fall back to TEXT timestamp for pre-migration rows.
+  const byTs = [...deps].sort((a, b) => {
+    const au = Number(a.timestamp_unix) || 0;
+    const bu = Number(b.timestamp_unix) || 0;
+    if (au || bu) return bu - au;
+    return String(b.timestamp || '').localeCompare(String(a.timestamp || ''));
+  });
   const newestUi = byTs[0] || null;
   let dep = complete;
   let twinFail = null;
