@@ -55,6 +55,9 @@ binding = "AI"
 [images]
 binding = "IMAGES"
 
+[images]
+binding = "IMAGES"
+
 # [[ai_search]]
 # binding = "AI_SEARCH"
 # instance_name = "iam-autorag"
