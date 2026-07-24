@@ -1519,7 +1519,7 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
     previewUrls.push(uploaded.image_url);
   }
 
-  return attachImageGenerationUsage(
+  const savedUsageResult = await attachImageGenerationUsage(
     env?.DB,
     {
       ok: true,
@@ -1540,6 +1540,68 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
     },
     billingCtx,
   );
+
+  // BUGFIX 2026-07-24 (tkt_image_rating_broken_for_persisted_saves_2026_07_24):
+  // rateImageGeneration only looks up image_generation_drafts by id -- persisted (saved)
+  // images never got a row there, so POST /api/images/rate 404'd (draft_not_found) for
+  // every saved image, incl. all multi-layout asks forced to persist:true since 95155be.
+  // Insert a rateable row pointing at the already-uploaded main-bucket asset -- no
+  // duplicate R2 write, no TTL/discard semantics, just a lookup target for rating.
+  try {
+    const savedUserId = String(ctx.userId || ctx.authUser?.id || '').trim();
+    if (savedUserId && env?.DB) {
+      const nowTs = Math.floor(Date.now() / 1000);
+      const savedContentTier =
+        resolvedParams.tier === 'draft' ||
+        resolvedParams.tier === 'quality' ||
+        resolvedParams.tier === 'standard'
+          ? contentTierFromImageTier(/** @type {ImageTier} */ (resolvedParams.tier))
+          : null;
+      const savedRoutingArmId =
+        resolvedParams.routing_arm_id != null
+          ? String(resolvedParams.routing_arm_id).trim() || null
+          : null;
+      const savedCostUsd = Number(savedUsageResult?.cost_usd ?? savedUsageResult?.usage?.cost_usd);
+      await env.DB.prepare(
+        `INSERT INTO image_generation_drafts (
+           id, user_id, workspace_id, tenant_id, status, r2_key, r2_bucket, preview_url,
+           purpose, prompt, provider, model, width, height, expires_at, created_at, updated_at,
+           content_tier, cost_usd, routing_arm_id
+         ) VALUES (?, ?, ?, ?, 'saved', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           status = 'saved',
+           r2_key = excluded.r2_key,
+           preview_url = excluded.preview_url,
+           updated_at = excluded.updated_at`,
+      )
+        .bind(
+          generationId,
+          savedUserId,
+          ctx.workspaceId != null ? String(ctx.workspaceId).trim() || null : null,
+          ctx.tenantId != null ? String(ctx.tenantId).trim() || null : null,
+          uploaded.r2_key,
+          BUCKET,
+          uploaded.image_url,
+          purpose,
+          prompt.slice(0, 2000),
+          gen.provider != null ? String(gen.provider).slice(0, 64) : null,
+          gen.model != null ? String(gen.model).slice(0, 128) : null,
+          dims.width,
+          dims.height,
+          nowTs + 365 * 24 * 3600,
+          nowTs,
+          nowTs,
+          savedContentTier,
+          Number.isFinite(savedCostUsd) ? savedCostUsd : null,
+          savedRoutingArmId,
+        )
+        .run();
+    }
+  } catch (e) {
+    console.warn('[image_generation] saved_rateable_row_failed', e?.message ?? e);
+  }
+
+  return savedUsageResult;
 }
 
 /**
@@ -1550,7 +1612,132 @@ export async function runImageGenerationForTool(env, toolName, params, ctx = {})
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} ctx
  */
+/**
+ * BUGFIX 2026-07-24 (tkt_imgx_variations_fan_out_2026_07_24):
+ * Multi-image asks ("three floor-plan layouts", "2 variations") previously made the
+ * model call imgx_generate_image N times sequentially in one turn -- each call raced
+ * whatever budget remained of ONE shared agent-run deadline, guaranteeing later calls
+ * starved (observed: 4974ms, 9372ms remaining -- both doomed). Fan out N independent
+ * generations CONCURRENTLY (Promise.all, each call never throws -- errors are caught
+ * per-variation) inside a SINGLE tool invocation, so total wall-clock is ~max(latencies)
+ * instead of ~sum(latencies), and all N fit inside the one budget window the outer
+ * dispatchToolCallWithBudget race already grants this call. Partial success preserved:
+ * N-1 successes still return (and already streamed via SSE) even if one variation fails.
+ * @param {(type: string, payload: Record<string, unknown>) => void} emit
+ * @param {unknown} env
+ * @param {string} toolName
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} ctx
+ * @param {number} count
+ */
+async function streamImageGenerationVariationsSse(emit, env, toolName, params, ctx, count) {
+  const basePrompt = String(params.prompt || params.description || '').trim();
+  const promptsRaw = Array.isArray(params.prompts) ? params.prompts : null;
+  const prompts =
+    promptsRaw && promptsRaw.length === count
+      ? promptsRaw.map((p) => (p != null && String(p).trim() ? String(p).trim() : basePrompt))
+      : Array.from({ length: count }, () => basePrompt);
+
+  const batchId = `imgxb_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  emit('image_generation_started', {
+    type: 'image_generation_started',
+    batch_id: batchId,
+    variation_count: count,
+    prompt: basePrompt.slice(0, 500),
+  });
+
+  const runOne = async (index) => {
+    const variationParams = { ...params, prompt: prompts[index] };
+    delete variationParams.variations;
+    delete variationParams.prompts;
+    const genId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    emit('image_generation_progress', {
+      type: 'image_generation_progress',
+      batch_id: batchId,
+      variation_index: index,
+      generation_id: genId,
+      progress: 8,
+      stage: 'initializing',
+      message: `Starting variation ${index + 1} of ${count}...`,
+      preview_frame: 0,
+    });
+    try {
+      const result = await runImageGenerationForTool(
+        env,
+        toolName,
+        { ...variationParams, generation_id: genId },
+        ctx,
+      );
+      const previewUrl = result.preview_url || result.image_url || null;
+      if (previewUrl) {
+        emit('image_generation_preview', {
+          type: 'image_generation_preview',
+          batch_id: batchId,
+          variation_index: index,
+          generation_id: result.generation_id || genId,
+          preview_url: previewUrl,
+          frame_index: index,
+        });
+      }
+      emit('image_generation_complete', {
+        type: 'image_generation_complete',
+        batch_id: batchId,
+        variation_index: index,
+        generation_id: result.generation_id || genId,
+        status: result.status || (result.persist ? 'saved' : 'draft'),
+        preview_url: previewUrl,
+        image_url: result.image_url,
+        provider: result.provider,
+        model: result.model,
+        persist: result.persist ?? false,
+        content_tier: result.content_tier || null,
+        cost_usd: result.cost_usd ?? null,
+        routing_arm_id: result.routing_arm_id || null,
+      });
+      return { ok: true, index, result };
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : String(e);
+      emit('image_generation_complete', {
+        type: 'image_generation_complete',
+        batch_id: batchId,
+        variation_index: index,
+        generation_id: genId,
+        status: 'failed',
+        failed: true,
+        error: msg,
+      });
+      return { ok: false, index, error: msg };
+    }
+  };
+
+  const settled = await Promise.all(Array.from({ length: count }, (_, i) => runOne(i)));
+  const succeeded = settled.filter((s) => s.ok).map((s) => s.result);
+  const failed = settled.filter((s) => !s.ok);
+
+  return {
+    ok: succeeded.length > 0,
+    status: failed.length === 0 ? 'batch_complete' : succeeded.length > 0 ? 'batch_partial' : 'batch_failed',
+    batch_id: batchId,
+    variation_count: count,
+    succeeded_count: succeeded.length,
+    failed_count: failed.length,
+    variations: succeeded,
+    failures: failed.map((f) => ({ variation_index: f.index, error: f.error })),
+    generation_id: succeeded[0]?.generation_id ?? null,
+    preview_url: succeeded[0]?.preview_url ?? succeeded[0]?.image_url ?? null,
+    image_url: succeeded[0]?.image_url ?? null,
+    preview_urls: succeeded.map((r) => r.preview_url || r.image_url).filter(Boolean),
+    provider: succeeded[0]?.provider ?? null,
+    model: succeeded[0]?.model ?? null,
+    persist: succeeded[0]?.persist ?? false,
+  };
+}
+
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
+  const requestedVariations = Math.max(1, Math.min(4, Math.floor(Number(params.variations) || 1)));
+  if (requestedVariations > 1 && toolName !== 'imgx_edit_image') {
+    return await streamImageGenerationVariationsSse(emit, env, toolName, params, ctx, requestedVariations);
+  }
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const prompt = String(params.prompt || params.description || '').trim();
   let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
