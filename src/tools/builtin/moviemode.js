@@ -263,6 +263,7 @@ export async function handleMoviemodeExport(env, params) {
 
 /**
  * handler.veo.generate — queue Vertex Veo long-running video generation.
+ * Default destination is local (playable artifact URL). Stream is optional Save.
  */
 export async function handleVeoGenerate(env, params) {
   const {
@@ -273,13 +274,30 @@ export async function handleVeoGenerate(env, params) {
     resolution = '720p',
     aspect_ratio = '16:9',
     negative_prompt,
+    destination: destinationRaw,
   } = params || {};
 
   const text = String(prompt || '').trim();
   if (!text) return { ok: false, error: 'prompt required' };
 
-  const { tenantId, workspaceId } = resolveScope(params);
+  const { tenantId, workspaceId, userId } = resolveScope(params);
   if (!workspaceId) return { ok: false, error: 'workspace_id required' };
+
+  const destination =
+    String(destinationRaw || 'local').trim().toLowerCase() === 'stream' ? 'stream' : 'local';
+
+  if (destination === 'stream') {
+    try {
+      const { getStreamCredentials } = await import('../../core/stream-api.js');
+      getStreamCredentials(env);
+    } catch (e) {
+      return {
+        ok: false,
+        error: `destination=stream requires Stream credentials: ${String(e?.message || e)}`,
+        destination,
+      };
+    }
+  }
 
   const model = await pickVeoModelFromDb(env, workspaceId);
   if (!model) return { ok: false, error: 'no active Veo model in catalog' };
@@ -338,12 +356,24 @@ export async function handleVeoGenerate(env, params) {
   const costPer = Number(model.max_cost_per_call_usd) || 0;
   const estimatedCostUsd = costPer > 0 ? costPer : (Number(duration_seconds) || 5) * 0.05;
 
+  let resolvedUserId = userId;
+  if (!resolvedUserId && env.DB) {
+    try {
+      const { resolveVeoArtifactUserId } = await import('../../core/moviemode-persistence.js');
+      resolvedUserId = await resolveVeoArtifactUserId(env, { workspaceId });
+    } catch {
+      resolvedUserId = '';
+    }
+  }
+
   const jobRow = {
     job_id: jobId,
     operation_name: operationName,
     model_key: catalogModelKey,
     workspace_id: workspaceId,
     tenant_id: tenantId,
+    user_id: resolvedUserId || null,
+    destination,
     prompt: text.slice(0, 2000),
     quality,
     resolution,
@@ -377,13 +407,20 @@ export async function handleVeoGenerate(env, params) {
       .catch((e) => console.warn('[veo] render_jobs mirror', e?.message ?? e));
   }
 
+  const statusUrl = `/api/moviemode/veo-jobs/${encodeURIComponent(jobId)}`;
   return {
     ok: true,
     job_id: jobId,
     model_used: catalogModelKey,
     status: 'queued',
+    destination,
     operation_name: operationName,
     estimated_cost_usd: estimatedCostUsd,
+    status_url: statusUrl,
+    message:
+      destination === 'stream'
+        ? 'Veo job queued. When ready, video will be saved to Hosted Videos (Stream).'
+        : 'Veo job queued. When ready, a local playable URL will be available (Stream optional via Save).',
   };
 }
 

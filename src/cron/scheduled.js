@@ -134,6 +134,12 @@ export async function handleScheduled(event, env, ctx) {
           console.warn('[cron] wae_error_spike_check', e?.message ?? e),
         ),
       );
+      // Veo LRO finalize — also on */20 so chat/status is not stuck on 30m only
+      ctx.waitUntil(
+        import('../core/moviemode-veo-poll.js')
+          .then(({ pollPendingVeoJobs }) => pollPendingVeoJobs(env, { limit: 10 }))
+          .catch((e) => console.warn('[cron] moviemode_veo_poll_20m', e?.message ?? e)),
+      );
       break;
 
     case '*/25 * * * *':

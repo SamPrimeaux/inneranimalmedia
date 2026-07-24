@@ -107,6 +107,17 @@ Owner files: `src/core/stream-api.js`, prefer new `src/api/stream-videos-api.js`
 - Missing Stream must **not** fail the generate path — fail loud only when Stream was explicitly requested.
 - Owner: `src/tools/builtin/moviemode.js` + stream upload helper in `stream-api.js`.
 
+### Lane D / E progress (2026-07-24)
+
+Shipped in this sprint:
+
+- `destination` default `local`; `destination=stream` fails loud at queue time if Stream creds missing.
+- Finalize bugfix: `user_id` persisted on KV/job; owner fallback; playable `public_url` always written.
+- Optional Stream ingest on finalize + `stream_uid` in `media_assets.metadata_json` / `source_uri`.
+- On-demand poll: `GET /api/moviemode/veo-jobs/:id` runs LRO check (not cron-only).
+- Cron also polls Veo on `*/20` in addition to `*/30`.
+- Chat: `AgentVideoGenerationCard` polls status + optional **Save to Hosted Videos**.
+
 ## Lane A / C / E / F (Cursor)
 
 See parallel contracts in Cursor plan; UI under `dashboard/components/videos/*`, shell in `ImagesShell.tsx`.
@@ -138,8 +149,9 @@ Also: `watch_url` / `iframe_url` must use the **playback HLS customer subdomain*
 
 ## Validation
 
-- [ ] Overview lists Stream (+ R2/Drive when filtered)  
-- [ ] Docs CTA + Video Link work  
-- [ ] All six Stream tabs real or fail loud  
-- [ ] Settings/Downloads/Captions/Embed/JSON/Public Details/Tags  
-- [ ] Veo chat → playable local result without Stream; optional Save → same `stream_uid` in Overview + Scratchpad (after D+E)  
+- [x] Overview lists Stream (+ R2/Drive when filtered)  
+- [x] Docs CTA + Video Link work  
+- [x] All six Stream tabs real or fail loud  
+- [x] Settings/Downloads/Captions/Embed/JSON/Public Details/Tags  
+- [x] Veo chat → playable local result without Stream; optional Save → Stream (Lane D+E card)  
+- [ ] Dual-pass E2E ticket closeout (Tier 1+2) after live Veo run

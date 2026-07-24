@@ -32,6 +32,39 @@ function mimeFromFilename(filename) {
 }
 
 /**
+ * Prefer explicit userId; else workspace owner / first active member.
+ * @param {any} env
+ * @param {{ userId?: string|null, workspaceId?: string|null }} opts
+ */
+export async function resolveVeoArtifactUserId(env, opts = {}) {
+  const fromJob = String(opts.userId || '').trim();
+  if (fromJob) return fromJob;
+  const workspaceId = String(opts.workspaceId || '').trim();
+  if (!env?.DB || !workspaceId) return '';
+  const owner = await env.DB.prepare(
+    `SELECT user_id FROM workspace_members
+     WHERE workspace_id = ?
+       AND LOWER(COALESCE(role, '')) = 'owner'
+       AND COALESCE(is_active, 1) = 1
+     LIMIT 1`,
+  )
+    .bind(workspaceId)
+    .first()
+    .catch(() => null);
+  if (owner?.user_id) return String(owner.user_id).trim();
+  const any = await env.DB.prepare(
+    `SELECT user_id FROM workspace_members
+     WHERE workspace_id = ? AND COALESCE(is_active, 1) = 1
+     ORDER BY joined_at ASC
+     LIMIT 1`,
+  )
+    .bind(workspaceId)
+    .first()
+    .catch(() => null);
+  return any?.user_id ? String(any.user_id).trim() : '';
+}
+
+/**
  * Persist MovieMode binary output to ARTIFACTS and register D1 rows.
  *
  * @param {any} env
@@ -51,13 +84,21 @@ function mimeFromFilename(filename) {
  *   height?: number,
  *   fps?: number,
  *   durationMs?: number,
+ *   destination?: 'local'|'stream',
+ *   metadataExtra?: Record<string, unknown>,
  * }} meta
  */
 export async function finalizeMoviemodeOutput(env, buffer, meta) {
   const workspaceId = String(meta.workspaceId || '').trim();
   const tenantId = String(meta.tenantId || '').trim();
-  const userId = String(meta.userId || '').trim();
-  if (!workspaceId || !tenantId || !userId) {
+  let userId = String(meta.userId || '').trim();
+  if (!workspaceId || !tenantId) {
+    throw new Error('workspace_id and tenant_id required');
+  }
+  if (!userId) {
+    userId = await resolveVeoArtifactUserId(env, { workspaceId });
+  }
+  if (!userId) {
     throw new Error('workspace_id, tenant_id, and user_id required');
   }
 
@@ -129,6 +170,8 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
           kind: 'export',
           job_id: meta.jobId || null,
           project_id: projectId,
+          destination: meta.destination || 'local',
+          ...(meta.metadataExtra && typeof meta.metadataExtra === 'object' ? meta.metadataExtra : {}),
         }),
       };
       const names = [];
@@ -169,7 +212,12 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
         filename,
         contentType,
         sizeBytes,
-        JSON.stringify({ artifact_id: artifactId, job_id: meta.jobId || null }),
+        JSON.stringify({
+          artifact_id: artifactId,
+          job_id: meta.jobId || null,
+          destination: meta.destination || 'local',
+          ...(meta.metadataExtra && typeof meta.metadataExtra === 'object' ? meta.metadataExtra : {}),
+        }),
       )
       .run()
       .catch((e) => console.warn('[moviemode] media_assets insert', e?.message));

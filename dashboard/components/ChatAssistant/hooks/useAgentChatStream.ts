@@ -21,6 +21,7 @@ import type {
   ExecutionPlanState,
   ExecutionPlanTask,
   ImageGenerationState,
+  VideoGenerationState,
   AgentGeneratedFile,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
@@ -35,7 +36,7 @@ import {
   formatToolTraceOutput,
   parseToolTraceReceiptMeta,
 } from '../../../lib/formatToolTraceSummary';
-import { isImageGenerationToolName } from '../../../lib/toolTracePreview';
+import { isImageGenerationToolName, isVideoGenerationToolName } from '../../../lib/toolTracePreview';
 import { sanitizeBrowserNavigateUrl } from '../../../lib/sanitizeBrowserUrl';
 import {
   extractMonacoInvokesFromBuffer,
@@ -433,6 +434,71 @@ function stripRedundantImageRefs(content: string, urls: string[]): string {
     out = out.replace(new RegExp(escaped, 'gi'), '');
   }
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function parseVeoToolPayload(raw: string | null | undefined): {
+  jobId: string | null;
+  destination: 'local' | 'stream';
+  status: string | null;
+  model: string | null;
+} {
+  const empty = { jobId: null as string | null, destination: 'local' as const, status: null as string | null, model: null as string | null };
+  if (!raw?.trim()) return empty;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const jobId =
+      typeof parsed.job_id === 'string'
+        ? parsed.job_id.trim()
+        : typeof parsed.jobId === 'string'
+          ? parsed.jobId.trim()
+          : null;
+    const destination =
+      String(parsed.destination || 'local').toLowerCase() === 'stream' ? 'stream' : 'local';
+    return {
+      jobId,
+      destination,
+      status: typeof parsed.status === 'string' ? parsed.status : null,
+      model: typeof parsed.model_used === 'string' ? parsed.model_used : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function patchAssistantVideoGeneration(
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  patch: Partial<VideoGenerationState> & { jobId: string },
+) {
+  setMessages((prev) => {
+    const next = [...prev];
+    const idx = next.length - 1;
+    if (idx < 0 || next[idx].role !== 'assistant') return prev;
+    const prevMsg = next[idx];
+    let prompt = patch.prompt || prevMsg.videoGenerationState?.prompt;
+    if (!prompt) {
+      for (let i = idx - 1; i >= 0; i -= 1) {
+        if (next[i].role === 'user' && next[i].content?.trim()) {
+          prompt = next[i].content.trim();
+          break;
+        }
+      }
+    }
+    const base: VideoGenerationState = prevMsg.videoGenerationState ?? {
+      jobId: patch.jobId,
+      phase: 'queued',
+      progress: 0,
+      message: 'Queued…',
+    };
+    next[idx] = {
+      ...prevMsg,
+      videoGenerationState: {
+        ...base,
+        ...patch,
+        prompt: prompt || base.prompt,
+      },
+    };
+    return next;
+  });
 }
 
 function patchAssistantImageGeneration(
@@ -2924,6 +2990,27 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                   }),
                 );
               }
+            }
+          }
+          if (doneOk && isVideoGenerationToolName(doneToolName)) {
+            const rawOut =
+              typeof d.output_preview === 'string' ? d.output_preview : outputPreview;
+            const veo = parseVeoToolPayload(rawOut);
+            const jobId =
+              veo.jobId ||
+              (typeof d.job_id === 'string' ? d.job_id.trim() : null) ||
+              null;
+            if (jobId) {
+              patchAssistantVideoGeneration(setMessages, {
+                jobId,
+                phase: 'queued',
+                progress: 15,
+                message: 'Video queued…',
+                destination: veo.destination,
+                model: veo.model || undefined,
+                status: 'draft',
+                failed: false,
+              });
             }
           }
           let closedRowId: string | null = null;

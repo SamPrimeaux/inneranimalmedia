@@ -136,6 +136,29 @@ export type ImageGenerationState = {
   userRating?: 1 | -1 | null;
 };
 
+/** Progressive Veo video generation card (poll `/api/moviemode/veo-jobs/:id`). */
+export type VideoGenerationPhase = 'queued' | 'generating' | 'completed' | 'failed';
+
+export type VideoGenerationState = {
+  jobId: string;
+  phase: VideoGenerationPhase;
+  progress: number;
+  message: string;
+  prompt?: string;
+  model?: string;
+  destination?: 'local' | 'stream';
+  /** Local artifact URL (default delivery). */
+  publicUrl?: string;
+  playableUrl?: string;
+  watchUrl?: string;
+  hls?: string;
+  streamUid?: string;
+  artifactId?: string;
+  assetId?: string;
+  status?: 'draft' | 'saved';
+  failed?: boolean;
+};
+
 export interface EmailArtifact {
   subject: string;
   body: string;
@@ -211,6 +234,8 @@ export interface Message {
   previewArtifacts?: AgentPreviewArtifact[];
   /** Cinematic progressive image generation (SSE `image_generation_*`). */
   imageGenerationState?: ImageGenerationState | null;
+  /** Veo video generation (queued → local playable; optional Stream Save). */
+  videoGenerationState?: VideoGenerationState | null;
   /** Email draft artifact from Agent Sam email composition (SSE `email_draft`). */
   emailArtifact?: EmailArtifact | null;
   /** Agent question rendered inline in thread. */

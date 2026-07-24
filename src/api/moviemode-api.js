@@ -1322,15 +1322,38 @@ export async function handleMoviemodeAssetSave(request, env, { workspaceId, auth
 const VEO_JOB_KV_PREFIX = 'veo_job_';
 
 export async function handleMoviemodeVeoJobGet(env, jobId, workspaceId) {
+  const id = String(jobId || '').trim();
+  if (!id) return jsonResponse({ error: 'job_id required' }, 400);
+
+  // On-demand LRO check so chat/status clients do not wait for the 30m cron.
+  try {
+    const { pollVeoJobById } = await import('../core/moviemode-veo-poll.js');
+    const polled = await pollVeoJobById(env, id);
+    if (polled?.job) {
+      const job = polled.job;
+      if (workspaceId && job.workspace_id && job.workspace_id !== workspaceId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+      return jsonResponse({
+        ok: true,
+        job,
+        polled: !!polled.polled,
+        error: polled.error || undefined,
+      });
+    }
+  } catch (e) {
+    console.warn('[veo-job-get] poll', e?.message ?? e);
+  }
+
   const kv = resolveMoviemodeKv(env);
   if (!kv) return jsonResponse({ error: 'KV not configured' }, 503);
-  const raw = await kv.get(`${VEO_JOB_KV_PREFIX}${jobId}`);
+  const raw = await kv.get(`${VEO_JOB_KV_PREFIX}${id}`);
   if (!raw) return jsonResponse({ error: 'Not found' }, 404);
   const job = JSON.parse(raw);
   if (workspaceId && job.workspace_id && job.workspace_id !== workspaceId) {
     return jsonResponse({ error: 'Forbidden' }, 403);
   }
-  return jsonResponse({ job });
+  return jsonResponse({ ok: true, job, polled: false });
 }
 
 export async function handleMoviemodeAgent(request, env, { workspaceId, tenantId, userId }) {

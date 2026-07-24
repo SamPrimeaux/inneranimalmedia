@@ -8,15 +8,19 @@ import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { ToolTraceRow } from './ToolTraceRow';
 import { OfflineRunnerEmbed } from '../../agent/OfflineRunnerEmbed';
-import { isImageGenerationToolName } from '../../../lib/toolTracePreview';
+import { isImageGenerationToolName, isVideoGenerationToolName } from '../../../lib/toolTracePreview';
 import './toolTraceTimeline.css';
 
 const RUNNER_DELAY_MS_DESKTOP = 2800;
 const RUNNER_DELAY_MS_COMPACT = 400;
 
+function isMediaGenTool(toolName?: string | null): boolean {
+  return isImageGenerationToolName(toolName) || isVideoGenerationToolName(toolName);
+}
+
 function onlyImageGenToolsRunning(rows: AgentToolTraceRow[]): boolean {
   const running = rows.filter((r) => r.status === 'running' && !r.cadJobLive);
-  return running.length > 0 && running.every((r) => isImageGenerationToolName(r.toolName));
+  return running.length > 0 && running.every((r) => isMediaGenTool(r.toolName));
 }
 
 export type ExecutionTimelineProps = {
@@ -64,8 +68,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   }, [rows, runnerDelayMs]);
 
   if (!rows.length) return null;
-  // Image tools render via AgentImageGenerationCard — never the tool SQL/result chrome.
-  const visibleRows = rows.filter((r) => !isImageGenerationToolName(r.toolName));
+  // Image/video tools render via dedicated cards — never the tool SQL/result chrome.
+  const visibleRows = rows.filter((r) => !isMediaGenTool(r.toolName));
   if (!visibleRows.length) return null;
   const anyRunning = visibleRows.some((r) => r.status === 'running' && !r.cadJobLive);
   const anyFailed = visibleRows.some((r) => r.status === 'error' || r.status === 'failed');
@@ -74,7 +78,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
     (r) => r.status === 'running' && r.toolName?.startsWith('agentsam_terminal'),
   );
   const hideWaitRunner =
-    onlyImageGenToolsRunning(rows) || rows.every((r) => isImageGenerationToolName(r.toolName));
+    onlyImageGenToolsRunning(rows) || rows.every((r) => isMediaGenTool(r.toolName));
 
   return (
     <div className="mt-2 min-w-0" aria-label="Execution timeline">

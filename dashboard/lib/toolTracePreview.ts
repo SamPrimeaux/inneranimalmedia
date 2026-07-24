@@ -149,12 +149,19 @@ export function isImageGenerationToolName(toolName?: string | null): boolean {
   );
 }
 
+/** Veo / video gen tools own AgentVideoGenerationCard. */
+export function isVideoGenerationToolName(toolName?: string | null): boolean {
+  const t = String(toolName || '').toLowerCase();
+  return t === 'veo_generate_video' || t.includes('veo_generate');
+}
+
 /** Extract D1 tabular rows from sqlRows or tool output JSON. */
 export function resolveSqlResultTable(
   row: AgentToolTraceRow,
 ): { rows: Record<string, unknown>[]; rowCount: number } | null {
   // imgx returns { status, generation_id, image_url } — not a query result.
   if (isImageGenerationToolName(row.toolName)) return null;
+  if (isVideoGenerationToolName(row.toolName)) return null;
 
   if (row.sqlRows?.length) {
     return { rows: row.sqlRows, rowCount: row.sqlRows.length };

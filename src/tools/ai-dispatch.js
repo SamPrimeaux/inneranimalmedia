@@ -194,7 +194,45 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'moviemode_export':
         case toolName === 'veo_generate_video':
         case toolName === 'agentsam_video_embed':
-            return await moviemodeHandlers[toolName]?.(env, params);
+            return await moviemodeHandlers[toolName]?.(env, {
+                ...params,
+                user_id:
+                    params?.user_id ||
+                    params?.session?.user_id ||
+                    runContext?.userId ||
+                    runContext?.user_id ||
+                    null,
+                workspace_id:
+                    params?.workspace_id ||
+                    params?.session?.workspace_id ||
+                    runContext?.workspaceId ||
+                    runContext?.workspace_id ||
+                    null,
+                tenant_id:
+                    params?.tenant_id ||
+                    params?.session?.tenant_id ||
+                    runContext?.tenantId ||
+                    runContext?.tenant_id ||
+                    null,
+                session: {
+                    ...(params?.session && typeof params.session === 'object' ? params.session : {}),
+                    user_id:
+                        params?.session?.user_id ||
+                        runContext?.userId ||
+                        runContext?.user_id ||
+                        null,
+                    workspace_id:
+                        params?.session?.workspace_id ||
+                        runContext?.workspaceId ||
+                        runContext?.workspace_id ||
+                        null,
+                    tenant_id:
+                        params?.session?.tenant_id ||
+                        runContext?.tenantId ||
+                        runContext?.tenant_id ||
+                        null,
+                },
+            });
 
         // ── CATEGORY: context / RAG (11 Tools) ───────────────────────────
         case toolName.startsWith('context_'):

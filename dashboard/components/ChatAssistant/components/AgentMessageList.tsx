@@ -34,6 +34,7 @@ import { ArtifactChipList } from '../execution/ArtifactChipList';
 import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
+import { AgentVideoGenerationCard } from '../../../components/AgentVideoGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 import { ToolApprovalCard } from './ToolApprovalCard';
 import type { ToolApprovalPayload } from '../types';
@@ -700,6 +701,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                         state={msg.imageGenerationState}
                         workspaceId={workspaceId}
                         onImagePreview={onImagePreview}
+                      />
+                    </div>
+                  ) : null}
+                  {msg.videoGenerationState ? (
+                    <div className="mb-3">
+                      <AgentVideoGenerationCard
+                        state={msg.videoGenerationState}
+                        workspaceId={workspaceId}
                       />
                     </div>
                   ) : null}
