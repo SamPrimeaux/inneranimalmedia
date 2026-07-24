@@ -69,6 +69,7 @@ import {
   batchPatchCfImageMeta,
   batchUploadToCfImages,
   buildFlexibleDeliveryUrl,
+  listCfImageVariants,
   runCfImagesBatch,
 } from '../core/cf-images-transform.js';
 
