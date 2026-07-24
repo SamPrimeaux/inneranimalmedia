@@ -232,17 +232,30 @@ function parseMetadata(raw) {
   }
 }
 
+/**
+ * Builds the *custom* metadata object for an image — only fields the user
+ * actually set. Previously this always returned a full 7-key skeleton
+ * (label/is_live/preferred_bg/notes/tenant_slug/category/project_slug) with
+ * empty-string/false fallbacks for anything unset, which made every image
+ * look like it had metadata even when CF's own record for it is `{}`. That's
+ * a Detail-page UI concern (duplicating fields already shown elsewhere) —
+ * the Metadata panel should honor CF's own convention: empty when empty.
+ */
 function buildMetaFromRow(row) {
   const metaObj = parseMetadata(row.metadata);
-  return {
-    label: metaObj.label || row.filename || row.original_filename || '',
-    is_live: !!metaObj.is_live,
-    preferred_bg: metaObj.preferred_bg || '',
-    notes: metaObj.notes || metaObj.description || row.description || '',
-    tenant_slug: metaObj.tenant_slug || '',
-    category: metaObj.category || '',
-    project_slug: metaObj.project_slug || '',
-  };
+  const out = {};
+  // `label` intentionally excludes the filename fallback — a label is only
+  // "real" if the user explicitly set one; otherwise it's not metadata,
+  // it's just the filename, which already has its own field in the UI.
+  if (metaObj.label) out.label = metaObj.label;
+  if (metaObj.is_live) out.is_live = true;
+  if (metaObj.preferred_bg) out.preferred_bg = metaObj.preferred_bg;
+  const notes = metaObj.notes || metaObj.description || row.description || '';
+  if (notes) out.notes = notes;
+  if (metaObj.tenant_slug) out.tenant_slug = metaObj.tenant_slug;
+  if (metaObj.category) out.category = metaObj.category;
+  if (metaObj.project_slug) out.project_slug = metaObj.project_slug;
+  return out;
 }
 
 /** CF Images meta payload — must stay under 1024 bytes (JSON string). */
