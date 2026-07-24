@@ -1,51 +1,39 @@
 # Images (DAM)
 
 **Classification:** `shared_capability`  
-**Stage:** `incubating`  
-**Route:** `/dashboard/images`  
-**Manifest:** [`product-manifests/images.json`](../../product-manifests/images.json)
+**Stage:** `rebuild_in_progress`  
+**Route:** `/dashboard/images` → `/dashboard/images/storage` (+ Delivery / Keys / Sourcing Kit / `:id` / `:id/edit`)  
+**Manifest:** [`product-manifests/images.json`](../../product-manifests/images.json)  
+**Sprint SSOT:** [`plans/active/cf-images-media-editor-2026-07.md`](../../plans/active/cf-images-media-editor-2026-07.md)
 
-Shared **digital asset management** — not a standalone resale SKU today.
+Shared **digital asset management** — Cloudflare Hosted Images UX on IAM, not a resale SKU.
 
 ---
 
-## Stack (verified)
+## Stack (target)
 
 | Layer | Path |
 |-------|------|
-| UI | `dashboard/components/ImagesPage.tsx` |
+| Shell / tabs | `dashboard/components/images/ImagesShell.tsx`, `imagesRegistry.ts` |
+| Storage gallery | `dashboard/components/images/ImagesStoragePage.tsx` |
+| Detail / edit / share | `ImagesDetailPage.tsx`, `ImagesEditPage.tsx`, `ImageShareModal.tsx` |
 | API | `src/api/images.js` |
-| D1 | `cms_assets` |
-| CF Images | `cloudflare_image_id`, `imagedelivery.net` |
-| Draft flow | `src/core/image-draft-store.js` |
+| Transform | `src/core/cf-images-transform.js` + Worker `IMAGES` binding |
+| Creds | `src/core/cf-oauth-images.js` |
+| D1 | `images` (+ `parent_image_id`, `transform_json`, `image_shares`) |
 
-Sources in UI: `all` | `r2` | `cf_images` | `drive`
-
----
-
-## Workflow gap (not infrastructure)
-
-The stack is correct. Missing:
-
-1. Unified pickers in CMS, Create, Movie Mode
-2. Category taxonomy enforcement (`cms`, `3d_studio`, `moviemode`, `project`, `brand`)
-3. Optional client-side compression (`@squoosh/lib` WASM) before upload — nicety, not required (CF transform at serve time)
+Sources: `all` | `r2` | `cf_images` | `drive` — CF Images transform requires **that workspace’s** Images connection (platform for Sam; BYOK for Connor). R2/Drive work without platform Images.
 
 ---
 
-## Recommended organization
+## Locked product rules
 
-```
-Upload (optional Squoosh) → CF Images ingest → cms_assets row
-  → tagged, categorized, project_slug
-  → consumed by CMS / Create / Movie Mode / projects
-```
+1. **CF Images** = crop/transform/watermark engine (no sharp in Worker).
+2. **Detail = route** `/dashboard/images/:id`, not a primary modal.
+3. **Tags** = D1 SSOT for query + dual-write to CF `iam_tags` when hosted.
+4. **Variants** = CF account variants; committed edits = new D1 derivative rows.
+5. **Pagination** = 20 per page.
+6. **Share** = private / team (Resend) / public delivery URL.
+7. **Ship gate** = Agent F §13 CF-docs QC scorecard (22 checks) — no half-baked features.
 
-**Generate flow:** `POST /api/images/generate` → draft → `commit` when approved
-
----
-
-## Related
-
-- [../../shared/SHARED_CAPABILITIES.md](../../shared/SHARED_CAPABILITIES.md)
-- [../../shared/ARTIFACT_SCHEMA.md](../../shared/ARTIFACT_SCHEMA.md)
+See sprint spec §13 for Cloudflare doc ownership, `fetch()` response notes, and the QC scorecard.
