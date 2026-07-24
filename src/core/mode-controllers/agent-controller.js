@@ -44,9 +44,10 @@ const SSE_HEADERS = {
   'Access-Control-Allow-Origin': '*',
 };
 
-// Production hang cancellation was observed at ~52s. Keep our typed timeout
-// comfortably ahead of the platform so finalization can still run.
-const AGENT_RUN_HARD_TIMEOUT_MS = 45_000;
+// Image / multi-tool turns need headroom (one imgx alone is often 20–30s).
+// 2-minute window so a second/third imgx still clears the 15s viable floor.
+const AGENT_RUN_HARD_TIMEOUT_MS = 125_000;
+const AGENT_RUN_TARGET_MS = 120_000;
 
 /**
  * Quickstart seed messages are meta-instructions to the MODEL ("Ask the user what they
@@ -625,8 +626,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   );
 
   const maxRunMs = Math.min(
-    Number(profile.max_runtime_ms) || 90000,
-    AGENT_RUN_HARD_TIMEOUT_MS - 5000,
+    Math.max(Number(profile.max_runtime_ms) || 0, AGENT_RUN_TARGET_MS),
+    AGENT_RUN_HARD_TIMEOUT_MS - 5_000,
   );
 
   try {
