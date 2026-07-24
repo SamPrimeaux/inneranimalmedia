@@ -21,7 +21,7 @@ const DEMO_IMAGE_ID = 'bc060aee-1285-4ab2-0885-12ad3ef68c00';
  * `key=value` path segment in place of a named variant, e.g.
  *   https://imagedelivery.net/<hash>/<id>/width=400,height=400,fit=scale-down
  * Refer to https://developers.cloudflare.com/images/optimization/hosted-images/enable-flexible-variants/
- * This mirrors buildFlexibleDeliveryUrl() in src/core/cf-images-transform.js (Lane 2) \u2014
+ * This mirrors buildFlexibleDeliveryUrl() in src/core/cf-images-transform.js (Lane 2) —
  * same option-string format, applied client-side here since this is a pure preview,
  * no derivative is being committed.
  */
