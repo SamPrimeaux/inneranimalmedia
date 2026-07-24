@@ -131,14 +131,14 @@ export function ImagesDeliveryPage() {
               </tr>
             </thead>
             <tbody>
-              {NAMED_VARIANTS.map((v) => {
+              {rows.map((v) => {
                 const example = accountHash
                   ? `https://imagedelivery.net/${accountHash}/{id}/${v.id}`
                   : `…/imagedelivery.net/{hash}/{id}/${v.id}`;
                 return (
                   <tr key={v.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <td style={td}>
-                      <code style={{ color: 'var(--solar-cyan)' }}>{v.label}</code>
+                      <span style={{ color: 'var(--solar-cyan)', fontWeight: 500 }}>{v.label}</span>
                     </td>
                     <td style={td}>{v.hint}</td>
                     <td style={{ ...td, maxWidth: 280 }}>
