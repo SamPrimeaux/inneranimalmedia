@@ -514,9 +514,17 @@ export async function getIntegrationOAuthRow(env, userId, provider, accountIdent
     if (refreshed.ok) {
       accessToken = refreshed.accessToken;
       refreshToken = refreshed.refreshToken;
-    } else {
-      return null;
+      return {
+        ...row,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_at: refreshed.expiresAt ?? row.expires_at,
+        is_active: 1,
+        last_refresh_error_code: null,
+        provider: prov,
+      };
     }
+    return null;
   } else if (prov === 'cloudflare' && isExpired && !refreshToken) {
     await markOAuthTokenInactive(
       env,

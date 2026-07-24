@@ -83,8 +83,23 @@ export async function sweepOAuthTokenLiveness(env) {
         out.deactivated += 1;
         continue;
       }
+      // Re-read expires_at from D1 — getIntegrationOAuthRow may have refreshed;
+      // never trust a stale candidate expires_at for ACCESS_STILL_EXPIRED.
+      const fresh = await env.DB.prepare(
+        `SELECT expires_at, COALESCE(is_active, 1) AS is_active
+         FROM user_oauth_tokens
+         WHERE user_id = ? AND provider = ? AND account_identifier = ?
+         LIMIT 1`,
+      )
+        .bind(userId, provider, account)
+        .first()
+        .catch(() => null);
       const exp =
-        live.expires_at != null && live.expires_at !== '' ? Number(live.expires_at) : null;
+        fresh?.expires_at != null && fresh.expires_at !== ''
+          ? Number(fresh.expires_at)
+          : live.expires_at != null && live.expires_at !== ''
+            ? Number(live.expires_at)
+            : null;
       const stillExpired = exp != null && Number.isFinite(exp) && exp < Math.floor(Date.now() / 1000);
       if (stillExpired) {
         await markOAuthTokenInactive(env, userId, provider, account, 'ACCESS_STILL_EXPIRED');
