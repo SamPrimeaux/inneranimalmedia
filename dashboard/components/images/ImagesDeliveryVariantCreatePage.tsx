@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import type { ImagesOutletContext } from './ImagesShell';
@@ -7,6 +7,40 @@ import { useImagesToast } from './imagesApi';
 
 const FIT_OPTIONS = ['scale-down', 'contain', 'cover', 'crop', 'pad'] as const;
 const METADATA_OPTIONS = ['none', 'keep', 'copyright'] as const;
+
+/**
+ * Demo hero image for the live variant preview, matching the pattern Cloudflare's
+ * own "Create variant" page uses (a fixed stock image rendered before any account
+ * image is selected). Same account hash/image already used elsewhere in the app.
+ */
+const DEMO_ACCOUNT_HASH = 'g7wf09fCONpnidkRnR_5vw';
+const DEMO_IMAGE_ID = 'bc060aee-1285-4ab2-0885-12ad3ef68c00';
+
+/**
+ * Flexible variants let you pass width/height/fit/metadata as a comma-separated
+ * `key=value` path segment in place of a named variant, e.g.
+ *   https://imagedelivery.net/<hash>/<id>/width=400,height=400,fit=scale-down
+ * Refer to https://developers.cloudflare.com/images/optimization/hosted-images/enable-flexible-variants/
+ * This mirrors buildFlexibleDeliveryUrl() in src/core/cf-images-transform.js (Lane 2) \u2014
+ * same option-string format, applied client-side here since this is a pure preview,
+ * no derivative is being committed.
+ */
+function buildFlexiblePreviewUrl(opts: {
+  width: string;
+  height: string;
+  fit: string;
+  metadata: (typeof METADATA_OPTIONS)[number];
+}): string {
+  const parts: string[] = [];
+  const w = Number(opts.width);
+  const h = Number(opts.height);
+  if (Number.isFinite(w) && w > 0) parts.push(`width=${Math.round(w)}`);
+  if (Number.isFinite(h) && h > 0) parts.push(`height=${Math.round(h)}`);
+  if (opts.fit) parts.push(`fit=${opts.fit}`);
+  if (opts.metadata && opts.metadata !== 'none') parts.push(`metadata=${opts.metadata}`);
+  const segment = parts.length ? parts.join(',') : 'public';
+  return `https://imagedelivery.net/${DEMO_ACCOUNT_HASH}/${DEMO_IMAGE_ID}/${segment}`;
+}
 
 export function ImagesDeliveryVariantCreatePage() {
   useOutletContext<ImagesOutletContext>();
