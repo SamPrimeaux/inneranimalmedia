@@ -41,9 +41,6 @@
 	"images": {
 		"binding": "IMAGES"
 	},
-	"images": {
-		"binding": "IMAGES"
-	},
 	"browser": {
 		"binding": "MYBROWSER"
 	},
