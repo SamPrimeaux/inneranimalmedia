@@ -1,12 +1,38 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { ChevronLeft } from 'lucide-react';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
 import { useImagesToast } from './imagesApi';
+import { Dropdown, type DropdownOption } from './Dropdown';
 
-const FIT_OPTIONS = ['scale-down', 'contain', 'cover', 'crop', 'pad'] as const;
-const METADATA_OPTIONS = ['none', 'keep', 'copyright'] as const;
+const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/';
+
+/**
+ * Fit options as shown in the live CF "Create variant" dashboard UI.
+ * `scale-down`, `contain`, `cover`, `crop`, `pad` are documented, stable API values
+ * (Images V1 variants API + Features doc). `scale-up` is also documented (Features
+ * doc: "the inverse of scale-down"). `stretch` is shown in the CF dashboard's own
+ * dropdown but is NOT present in the documented variants API schema as of this
+ * writing — included here to visually match the dashboard, but verify it's
+ * actually accepted before relying on it (create one test variant with fit=stretch
+ * via the CF dashboard directly and confirm it saves without error).
+ */
+const FIT_OPTIONS: DropdownOption[] = [
+  { value: 'scale-down', label: 'Scale down' },
+  { value: 'contain', label: 'Contain' },
+  { value: 'cover', label: 'Cover' },
+  { value: 'crop', label: 'Crop' },
+  { value: 'pad', label: 'Pad' },
+  { value: 'stretch', label: 'Stretch' },
+  { value: 'scale-up', label: 'Scale up' },
+];
+
+const METADATA_OPTIONS: DropdownOption[] = [
+  { value: 'none', label: 'Strip all metadata' },
+  { value: 'copyright', label: 'Strip all except copyright' },
+  { value: 'keep', label: 'Keep all metadata' },
+];
 
 /**
  * Demo hero image for the live variant preview, matching the pattern Cloudflare's
@@ -29,7 +55,7 @@ function buildFlexiblePreviewUrl(opts: {
   width: string;
   height: string;
   fit: string;
-  metadata: (typeof METADATA_OPTIONS)[number];
+  metadata: string;
 }): string {
   const parts: string[] = [];
   const w = Number(opts.width);
@@ -43,15 +69,20 @@ function buildFlexiblePreviewUrl(opts: {
 }
 
 export function ImagesDeliveryVariantCreatePage() {
-  useOutletContext<ImagesOutletContext>();
+  const { setDocsUrl } = useOutletContext<ImagesOutletContext>();
   const navigate = useNavigate();
   const { toasts, add: toast } = useImagesToast();
+
+  useEffect(() => {
+    setDocsUrl(DOCS_URL);
+    return () => setDocsUrl(null);
+  }, [setDocsUrl]);
 
   const [variantId, setVariantId] = useState('');
   const [width, setWidth] = useState('400');
   const [height, setHeight] = useState('400');
-  const [fit, setFit] = useState<(typeof FIT_OPTIONS)[number]>('scale-down');
-  const [metadata, setMetadata] = useState<(typeof METADATA_OPTIONS)[number]>('none');
+  const [fit, setFit] = useState<string>('scale-down');
+  const [metadata, setMetadata] = useState<string>('none');
   const [watermark, setWatermark] = useState(false);
   const [publicAccess, setPublicAccess] = useState(true);
 
@@ -167,30 +198,14 @@ export function ImagesDeliveryVariantCreatePage() {
           </div>
 
           <label style={fieldLabel}>Fit</label>
-          <select
-            value={fit}
-            onChange={(e) => setFit(e.target.value as (typeof FIT_OPTIONS)[number])}
-            style={{ ...input, marginBottom: 14, cursor: 'pointer' }}
-          >
-            {FIT_OPTIONS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
+          <div style={{ marginBottom: 14 }}>
+            <Dropdown value={fit} options={FIT_OPTIONS} onChange={setFit} />
+          </div>
 
           <label style={fieldLabel}>Metadata</label>
-          <select
-            value={metadata}
-            onChange={(e) => setMetadata(e.target.value as (typeof METADATA_OPTIONS)[number])}
-            style={{ ...input, marginBottom: 14, cursor: 'pointer' }}
-          >
-            {METADATA_OPTIONS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+          <div style={{ marginBottom: 14 }}>
+            <Dropdown value={metadata} options={METADATA_OPTIONS} onChange={setMetadata} />
+          </div>
 
           <label
             style={{
@@ -269,39 +284,23 @@ export function ImagesDeliveryVariantCreatePage() {
           </div>
         </div>
 
-        {/* Preview panel */}
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 12,
-            border: '1px solid var(--border-subtle)',
-            background: 'var(--bg-elevated)',
-            minHeight: 360,
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
+        {/* Preview panel — image renders directly, edge-to-edge, no nested "card" box */}
+        <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Preview</div>
-          <div
+          <img
+            key={previewUrl}
+            src={previewUrl}
+            alt="Live variant preview"
             style={{
-              flex: 1,
-              borderRadius: 8,
+              display: 'block',
+              width: '100%',
+              maxHeight: 620,
+              objectFit: 'cover',
+              borderRadius: 12,
               border: '1px solid var(--border-subtle)',
-              background: 'var(--bg-panel)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              padding: 12,
+              background: 'var(--bg-elevated)',
             }}
-          >
-            <img
-              key={previewUrl}
-              src={previewUrl}
-              alt="Live variant preview"
-              style={{ maxWidth: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 4 }}
-            />
-          </div>
+          />
           <div
             style={{
               marginTop: 10,
@@ -310,7 +309,7 @@ export function ImagesDeliveryVariantCreatePage() {
               textAlign: 'center',
             }}
           >
-            {width || '—'} × {height || '—'} · fit={fit}
+            {width || '—'} × {height || '—'}
             {metadata !== 'none' ? ` · metadata=${metadata}` : ''}
           </div>
           <div
