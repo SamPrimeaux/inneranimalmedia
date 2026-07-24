@@ -64,6 +64,20 @@ export function ImagesDetailPage() {
   const [selectedVariant, setSelectedVariant] = useState('public');
   const [shareOpen, setShareOpen] = useState(false);
   const [accountHash, setAccountHash] = useState('');
+  // Real, account-configured variant dimensions — null while loading or if the
+  // catalog endpoint is unavailable, in which case callers fall back to the
+  // static NAMED_VARIANTS guesses in imagesRegistry.ts.
+  const [realVariants, setRealVariants] = useState<CfVariantDef[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRealVariantsCatalog().then((v) => {
+      if (!cancelled) setRealVariants(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
