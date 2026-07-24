@@ -1,69 +1,68 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useOutletContext } from 'react-router-dom';
-import { ChevronLeft } from 'lucide-react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { Plus, Trash2 } from 'lucide-react';
 import type { ImagesOutletContext } from './ImagesShell';
 import { ImagesToastStack } from './ImagesUsageAccountSidebar';
 import { useImagesToast } from './imagesApi';
 import { Dropdown, type DropdownOption } from './Dropdown';
+import { Toggle } from './Toggle';
+import { Breadcrumb } from './Breadcrumb';
 
 const DOCS_URL = 'https://developers.cloudflare.com/images/optimization/hosted-images/create-variants/';
 
 /**
- * Fit options as shown in the live CF "Create variant" dashboard UI.
- * `scale-down`, `contain`, `cover`, `crop`, `pad` are documented, stable API values
- * (Images V1 variants API + Features doc). `scale-up` is also documented (Features
- * doc: "the inverse of scale-down"). `stretch` is shown in the CF dashboard's own
- * dropdown but is NOT present in the documented variants API schema as of this
- * writing — included here to visually match the dashboard, but verify it's
- * actually accepted before relying on it (create one test variant with fit=stretch
- * via the CF dashboard directly and confirm it saves without error).
+ * Named-variant param catalog. Per CF's own Key Concepts doc: "Predefined
+ * variants specify a limited set of parameters: width, height, fit, and
+ * blur." `metadata` is also configurable via the dashboard/API even though
+ * it's not a resize parameter. This is intentionally NOT the same catalog as
+ * the Edit page's binding-transform ops (gravity/rotate/brightness/etc are
+ * valid for the binding pipeline, not for named-variant creation).
  */
-const FIT_OPTIONS: DropdownOption[] = [
-  { value: 'scale-down', label: 'Scale down' },
-  { value: 'contain', label: 'Contain' },
-  { value: 'cover', label: 'Cover' },
-  { value: 'crop', label: 'Crop' },
-  { value: 'pad', label: 'Pad' },
-  { value: 'stretch', label: 'Stretch' },
-  { value: 'scale-up', label: 'Scale up' },
+type RowKey = 'width' | 'height' | 'fit' | 'metadata' | 'blur';
+
+const FIT_OPTIONS: (DropdownOption & { help: string })[] = [
+  { value: 'scale-down', label: 'Scale down', help: 'Fits within dimensions while preserving aspect ratio, but never upscales.' },
+  { value: 'contain', label: 'Contain', help: 'Resized to be as large as possible within the dimensions while preserving aspect ratio.' },
+  { value: 'cover', label: 'Cover', help: 'Resized to exactly fill the target area; cropped if necessary.' },
+  { value: 'crop', label: 'Crop', help: 'Shrunk and cropped to fit; never enlarged.' },
+  { value: 'pad', label: 'Pad', help: 'Resized to fit within dimensions while preserving aspect ratio, padding remaining space.' },
 ];
 
-const METADATA_OPTIONS: DropdownOption[] = [
-  { value: 'none', label: 'Strip all metadata' },
-  { value: 'copyright', label: 'Strip all except copyright' },
-  { value: 'keep', label: 'Keep all metadata' },
+const METADATA_OPTIONS: (DropdownOption & { help: string })[] = [
+  { value: 'none', label: 'Strip all metadata', help: 'Removes all EXIF metadata from the output image.' },
+  { value: 'copyright', label: 'Strip all except copyright', help: 'Discards all metadata except the EXIF copyright tag.' },
+  { value: 'keep', label: 'Keep all metadata', help: 'Preserves all original EXIF metadata in the output image.' },
 ];
 
-/**
- * Demo hero image for the live variant preview, matching the pattern Cloudflare's
- * own "Create variant" page uses (a fixed stock image rendered before any account
- * image is selected). Same account hash/image already used elsewhere in the app.
- */
+const ROW_CATALOG: { key: RowKey; label: string; addable: boolean }[] = [
+  { key: 'width', label: 'Width', addable: false },
+  { key: 'height', label: 'Height', addable: false },
+  { key: 'fit', label: 'Fit', addable: false },
+  { key: 'metadata', label: 'Metadata', addable: false },
+  { key: 'blur', label: 'Blur', addable: true },
+];
+
+const ROW_DEFAULTS: Record<RowKey, string> = {
+  width: '1366',
+  height: '768',
+  fit: 'scale-down',
+  metadata: 'none',
+  blur: '0',
+};
+
 const DEMO_ACCOUNT_HASH = 'g7wf09fCONpnidkRnR_5vw';
 const DEMO_IMAGE_ID = 'bc060aee-1285-4ab2-0885-12ad3ef68c00';
 
-/**
- * Flexible variants let you pass width/height/fit/metadata as a comma-separated
- * `key=value` path segment in place of a named variant, e.g.
- *   https://imagedelivery.net/<hash>/<id>/width=400,height=400,fit=scale-down
- * Refer to https://developers.cloudflare.com/images/optimization/hosted-images/enable-flexible-variants/
- * This mirrors buildFlexibleDeliveryUrl() in src/core/cf-images-transform.js (Lane 2) —
- * same option-string format, applied client-side here since this is a pure preview,
- * no derivative is being committed.
- */
-function buildFlexiblePreviewUrl(opts: {
-  width: string;
-  height: string;
-  fit: string;
-  metadata: string;
-}): string {
+function buildFlexiblePreviewUrl(values: Partial<Record<RowKey, string>>): string {
   const parts: string[] = [];
-  const w = Number(opts.width);
-  const h = Number(opts.height);
+  const w = Number(values.width);
+  const h = Number(values.height);
   if (Number.isFinite(w) && w > 0) parts.push(`width=${Math.round(w)}`);
   if (Number.isFinite(h) && h > 0) parts.push(`height=${Math.round(h)}`);
-  if (opts.fit) parts.push(`fit=${opts.fit}`);
-  if (opts.metadata && opts.metadata !== 'none') parts.push(`metadata=${opts.metadata}`);
+  if (values.fit) parts.push(`fit=${values.fit}`);
+  if (values.metadata && values.metadata !== 'none') parts.push(`metadata=${values.metadata}`);
+  const blur = Number(values.blur);
+  if (Number.isFinite(blur) && blur > 0) parts.push(`blur=${Math.round(blur)}`);
   const segment = parts.length ? parts.join(',') : 'public';
   return `https://imagedelivery.net/${DEMO_ACCOUNT_HASH}/${DEMO_IMAGE_ID}/${segment}`;
 }
@@ -79,17 +78,31 @@ export function ImagesDeliveryVariantCreatePage() {
   }, [setDocsUrl]);
 
   const [variantId, setVariantId] = useState('');
-  const [width, setWidth] = useState('1366');
-  const [height, setHeight] = useState('768');
-  const [fit, setFit] = useState<string>('scale-down');
-  const [metadata, setMetadata] = useState<string>('none');
+  const [rowKeys, setRowKeys] = useState<RowKey[]>(['width', 'height', 'fit', 'metadata']);
+  const [values, setValues] = useState<Record<RowKey, string>>({ ...ROW_DEFAULTS });
   const [watermark, setWatermark] = useState(false);
   const [publicAccess, setPublicAccess] = useState(true);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
-  const previewUrl = useMemo(
-    () => buildFlexiblePreviewUrl({ width, height, fit, metadata }),
-    [width, height, fit, metadata],
+  const availableToAdd = useMemo(
+    () => ROW_CATALOG.filter((r) => r.addable && !rowKeys.includes(r.key)),
+    [rowKeys],
   );
+
+  const removeRow = (key: RowKey) => setRowKeys((prev) => prev.filter((k) => k !== key));
+  const addRow = (key: RowKey) => {
+    setRowKeys((prev) => [...prev, key]);
+    setAddMenuOpen(false);
+  };
+  const setValue = (key: RowKey, v: string) => setValues((prev) => ({ ...prev, [key]: v }));
+
+  const activeValues = useMemo(() => {
+    const out: Partial<Record<RowKey, string>> = {};
+    for (const k of rowKeys) out[k] = values[k];
+    return out;
+  }, [rowKeys, values]);
+
+  const previewUrl = useMemo(() => buildFlexiblePreviewUrl(activeValues), [activeValues]);
 
   const onCreate = () => {
     const id = variantId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
@@ -97,11 +110,8 @@ export function ImagesDeliveryVariantCreatePage() {
       toast('Enter a variant id', 'err');
       return;
     }
-    // Named variants are account-level in Cloudflare Images (dashboard / API), not per-image.
-    // IAM does not yet proxy CF variant create — document via toast.
-    toast(
-      `Variants are account-level in Cloudflare Images. Create “${id}” (${width}×${height}, fit=${fit}) in the CF dashboard or Images API.`,
-    );
+    const summary = rowKeys.map((k) => `${k}=${values[k]}`).join(', ');
+    toast(`Variants are account-level in Cloudflare Images. Create "${id}" (${summary}) in the CF dashboard or Images API.`);
   };
 
   const fieldLabel: React.CSSProperties = {
@@ -116,7 +126,7 @@ export function ImagesDeliveryVariantCreatePage() {
     width: '100%',
     boxSizing: 'border-box',
     padding: '8px 10px',
-    borderRadius: 8,
+    borderRadius: 6,
     border: '1px solid var(--border-subtle)',
     background: 'var(--bg-elevated)',
     color: 'var(--text-main)',
@@ -125,43 +135,114 @@ export function ImagesDeliveryVariantCreatePage() {
     outline: 'none',
   };
 
+  const card: React.CSSProperties = {
+    borderRadius: 6,
+    border: '1px solid var(--border-subtle)',
+    background: 'var(--bg-panel)',
+  };
+
+  const rowWrap: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 14,
+  };
+
+  const trashBtn = (onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Remove"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '8px',
+        marginTop: 2,
+        borderRadius: 6,
+        border: '1px solid var(--border-subtle)',
+        background: 'var(--bg-elevated)',
+        color: 'var(--text-muted)',
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      <Trash2 size={13} />
+    </button>
+  );
+
+  const renderRow = (key: RowKey) => {
+    const catalogEntry = ROW_CATALOG.find((r) => r.key === key)!;
+    if (key === 'fit') {
+      const selected = FIT_OPTIONS.find((o) => o.value === values.fit);
+      return (
+        <div key={key} style={rowWrap}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <label style={fieldLabel}>{catalogEntry.label}</label>
+            <Dropdown value={values.fit} options={FIT_OPTIONS} onChange={(v) => setValue('fit', v)} />
+            {selected ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>{selected.help}</div>
+            ) : null}
+          </div>
+          {trashBtn(() => removeRow('fit'))}
+        </div>
+      );
+    }
+    if (key === 'metadata') {
+      const selected = METADATA_OPTIONS.find((o) => o.value === values.metadata);
+      return (
+        <div key={key} style={rowWrap}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <label style={fieldLabel}>{catalogEntry.label}</label>
+            <Dropdown value={values.metadata} options={METADATA_OPTIONS} onChange={(v) => setValue('metadata', v)} />
+            {selected ? (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>{selected.help}</div>
+            ) : null}
+          </div>
+          {trashBtn(() => removeRow('metadata'))}
+        </div>
+      );
+    }
+    // width / height / blur — plain numeric fields
+    return (
+      <div key={key} style={rowWrap}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <label style={fieldLabel}>{catalogEntry.label}</label>
+          <input
+            type="number"
+            min={key === 'blur' ? 0 : 1}
+            max={key === 'blur' ? 250 : 4096}
+            value={values[key]}
+            onChange={(e) => setValue(key, e.target.value)}
+            style={input}
+          />
+        </div>
+        {trashBtn(() => removeRow(key))}
+      </div>
+    );
+  };
+
   return (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 24px 32px' }}>
-      <Link
-        to="/dashboard/images/delivery"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 4,
-          fontSize: 12,
-          color: 'var(--text-muted)',
-          textDecoration: 'none',
-          marginBottom: 14,
-        }}
-      >
-        <ChevronLeft size={14} />
-        Delivery
-      </Link>
+      <Breadcrumb
+        items={[
+          { label: 'Hosted images', to: '/dashboard/images/storage', icon: true },
+          { label: 'Variants', to: '/dashboard/images/delivery' },
+          { label: 'Create variant' },
+        ]}
+      />
 
       <h2 style={{ margin: '0 0 18px', fontSize: 18, fontWeight: 600 }}>Create a variant</h2>
 
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(280px, 420px) 1fr',
+          gridTemplateColumns: 'minmax(280px, 420px) minmax(280px, 900px)',
           gap: 24,
           alignItems: 'start',
         }}
       >
-        {/* Configuration — CF create-variant layout */}
-        <div
-          style={{
-            padding: 20,
-            borderRadius: 12,
-            border: '1px solid var(--border-subtle)',
-            background: 'var(--bg-panel)',
-          }}
-        >
+        {/* Configuration */}
+        <div style={{ ...card, padding: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Configuration</div>
 
           <label style={fieldLabel}>Variant ID</label>
@@ -169,81 +250,89 @@ export function ImagesDeliveryVariantCreatePage() {
             value={variantId}
             onChange={(e) => setVariantId(e.target.value)}
             placeholder="e.g. product_thumb"
-            style={{ ...input, marginBottom: 14 }}
+            style={{ ...input, marginBottom: 16 }}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-            <div>
-              <label style={fieldLabel}>Width</label>
-              <input
-                type="number"
-                min={1}
-                max={4096}
-                value={width}
-                onChange={(e) => setWidth(e.target.value)}
-                style={input}
-              />
+          {rowKeys.map(renderRow)}
+
+          <div style={{ position: 'relative', marginBottom: 20 }}>
+            <button
+              type="button"
+              onClick={() => setAddMenuOpen((o) => !o)}
+              disabled={!availableToAdd.length}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                borderRadius: 6,
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-elevated)',
+                color: availableToAdd.length ? 'var(--text-main)' : 'var(--text-muted)',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: availableToAdd.length ? 'pointer' : 'not-allowed',
+                fontFamily: 'inherit',
+              }}
+            >
+              <Plus size={13} />
+              Add
+            </button>
+            {addMenuOpen && availableToAdd.length ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  left: 0,
+                  zIndex: 20,
+                  borderRadius: 6,
+                  border: '1px solid var(--border-subtle)',
+                  background: 'var(--bg-elevated)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                  minWidth: 160,
+                  overflow: 'hidden',
+                }}
+              >
+                {availableToAdd.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => addRow(r.key)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--text-main)',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div style={{ ...card, padding: 14, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, fontWeight: 500 }}>Watermark</span>
+            <Toggle checked={watermark} onChange={setWatermark} label="Watermark" />
+          </div>
+
+          <div style={{ ...card, padding: 14, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>Always allow public access</span>
+              <Toggle checked={publicAccess} onChange={setPublicAccess} label="Always allow public access" />
             </div>
-            <div>
-              <label style={fieldLabel}>Height</label>
-              <input
-                type="number"
-                min={1}
-                max={4096}
-                value={height}
-                onChange={(e) => setHeight(e.target.value)}
-                style={input}
-              />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+              Checking "Always allow public access" overrides image-level access control. If checked,
+              images that require signed URLs can be accessed publicly.
             </div>
           </div>
-
-          <label style={fieldLabel}>Fit</label>
-          <div style={{ marginBottom: 14 }}>
-            <Dropdown value={fit} options={FIT_OPTIONS} onChange={setFit} />
-          </div>
-
-          <label style={fieldLabel}>Metadata</label>
-          <div style={{ marginBottom: 14 }}>
-            <Dropdown value={metadata} options={METADATA_OPTIONS} onChange={setMetadata} />
-          </div>
-
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              color: 'var(--text-main)',
-              marginBottom: 10,
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={watermark}
-              onChange={(e) => setWatermark(e.target.checked)}
-            />
-            Watermark
-          </label>
-
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 12,
-              color: 'var(--text-main)',
-              marginBottom: 20,
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={publicAccess}
-              onChange={(e) => setPublicAccess(e.target.checked)}
-            />
-            Public access
-          </label>
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -252,7 +341,7 @@ export function ImagesDeliveryVariantCreatePage() {
               style={{
                 flex: 1,
                 padding: '9px 12px',
-                borderRadius: 8,
+                borderRadius: 6,
                 border: '1px solid var(--border-subtle)',
                 background: 'var(--bg-elevated)',
                 color: 'var(--text-muted)',
@@ -269,7 +358,7 @@ export function ImagesDeliveryVariantCreatePage() {
               style={{
                 flex: 1,
                 padding: '9px 12px',
-                borderRadius: 8,
+                borderRadius: 6,
                 border: 'none',
                 background: 'var(--solar-cyan)',
                 color: '#000',
@@ -284,39 +373,19 @@ export function ImagesDeliveryVariantCreatePage() {
           </div>
         </div>
 
-        {/*
-          Fixed-footprint box, image at true native size — no crop, no
-          stretch-to-fill. See ImagesDetailPage.tsx for the full rationale;
-          same fix applies here since this page had the identical bug.
-        */}
+        {/* Preview — single card, capped width so it doesn't stretch into a dead gutter */}
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 16 }}>Preview</div>
-          <div
-            style={{
-              borderRadius: 12,
-              border: '1px solid var(--border-subtle)',
-              background: 'var(--bg-elevated)',
-              padding: 16,
-              minHeight: 700,
-            }}
-          >
+          <div style={{ ...card, overflow: 'hidden' }}>
             <img
               key={previewUrl}
               src={previewUrl}
               alt="Live variant preview"
-              style={{ display: 'block', maxWidth: '100%', height: 'auto' }}
+              style={{ display: 'block', width: '100%', height: 'auto' }}
             />
           </div>
-          <div
-            style={{
-              marginTop: 10,
-              fontSize: 11,
-              color: 'var(--text-muted)',
-              textAlign: 'center',
-            }}
-          >
-            {width || '—'} × {height || '—'}
-            {metadata !== 'none' ? ` · metadata=${metadata}` : ''}
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+            {values.width || '—'} × {values.height || '—'}
           </div>
         </div>
       </div>
