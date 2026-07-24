@@ -1,9 +1,9 @@
 /**
  * Dashboard shell navigation — single source for sidebar + mobile drawer.
- * Phase 1: core rows, Code / Create / Collaborate product menus.
+ * Phase 1: core rows, Media (Images/Videos), Code / Create / Collaborate product menus.
  */
 
-export type ShellProductId = 'code' | 'create' | 'collaborate';
+export type ShellProductId = 'media' | 'code' | 'create' | 'collaborate';
 
 export type ShellCoreItem =
   | { id: string; kind: 'action'; label: string; action: 'new-chat' | 'open-chats' }
@@ -29,6 +29,13 @@ export const CMS_SUITE_NAV: ShellProductItem[] = [
   { id: 'cms-imports', label: 'Imports', path: '/dashboard/cms/imports', match: 'prefix' },
 ];
 
+/** Media ▾ — Images + Videos (promoted out of Create; sits below Work). */
+export const MEDIA_NAV_CHILDREN: ShellProductItem[] = [
+  // Active matching for media-images excludes /videos (see shellNavResolve).
+  { id: 'media-images', label: 'Images', path: '/dashboard/images', match: 'prefix' },
+  { id: 'media-videos', label: 'Videos', path: '/dashboard/images/videos', match: 'prefix' },
+];
+
 export type ShellProduct = {
   id: ShellProductId;
   label: string;
@@ -44,7 +51,16 @@ export const SHELL_CORE_NAV: ShellCoreItem[] = [
   { id: 'artifacts', kind: 'route', label: 'Work', path: '/dashboard/artifacts', match: 'prefix' },
 ];
 
+/** Rendered immediately under Work (before Code / Create / Collaborate). */
+export const SHELL_MEDIA_PRODUCT: ShellProduct = {
+  id: 'media',
+  label: 'Media',
+  home: '/dashboard/images/storage',
+  items: MEDIA_NAV_CHILDREN,
+};
+
 export const SHELL_PRODUCTS: ShellProduct[] = [
+  SHELL_MEDIA_PRODUCT,
   {
     id: 'code',
     label: 'Code',
@@ -70,7 +86,6 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
         match: 'prefix',
         children: CMS_SUITE_NAV,
       },
-      { id: 'images', label: 'Images', path: '/dashboard/images', match: 'prefix' },
       { id: 'moviemode', label: 'Movie Mode', path: '/dashboard/moviemode', match: 'prefix' },
     ],
   },

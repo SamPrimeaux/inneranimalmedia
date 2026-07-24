@@ -27,6 +27,7 @@ export function ImagesRoutes({ workspaceId }: { workspaceId?: string | null }) {
       <Route path="delivery/variant/create" element={<ImagesDeliveryVariantCreatePage />} />
       <Route path="keys" element={<ImagesKeysPage />} />
       <Route path="sourcing-kit" element={<ImagesSourcingKitPage />} />
+      {/* Videos live on sibling /dashboard/images/videos (VideosShell) — not nested here. */}
       <Route path=":id/edit" element={<ImagesEditPage />} />
       <Route path=":id" element={<ImagesDetailPage />} />
     </Route>

@@ -232,6 +232,43 @@ const ImagesDetailPage = lazy(() =>
 const ImagesEditPage = lazy(() =>
   import('./components/images/ImagesEditPage').then((m) => ({ default: m.ImagesEditPage })),
 );
+const VideosShell = lazy(() =>
+  import('./components/videos/VideosShell').then((m) => ({ default: m.VideosShell })),
+);
+const VideosOverviewPage = lazy(() =>
+  import('./components/videos/VideosOverviewPage').then((m) => ({ default: m.VideosOverviewPage })),
+);
+const VideosDetailShell = lazy(() =>
+  import('./components/videos/VideosDetailShell').then((m) => ({ default: m.VideosDetailShell })),
+);
+const VideosAssetDetailPage = lazy(() =>
+  import('./components/videos/VideosAssetDetailPage').then((m) => ({
+    default: m.VideosAssetDetailPage,
+  })),
+);
+const VideosSettingsTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosSettingsTab })),
+);
+const VideosDownloadsTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosDownloadsTab })),
+);
+const VideosCaptionsTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosCaptionsTab })),
+);
+const VideosEmbedTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosEmbedTab })),
+);
+const VideosJsonTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosJsonTab })),
+);
+const VideosPublicDetailsTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({
+    default: m.VideosPublicDetailsTab,
+  })),
+);
+const VideosTagsTab = lazy(() =>
+  import('./components/videos/VideosDetailTabs').then((m) => ({ default: m.VideosTagsTab })),
+);
 const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
 const MeetPage = lazy(() => import('./components/MeetPage'));
 const SettingsPanel = lazy(() => import('./components/settings'));
@@ -5402,6 +5439,27 @@ const App: React.FC = () => {
                         path="/dashboard/storage"
                         element={<Navigate to="/dashboard/settings/storage" replace />}
                       />
+                      <Route
+                        path="/dashboard/images/videos"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <VideosShell workspaceId={authWorkspaceId || undefined} />
+                          </div>
+                        }
+                      >
+                        <Route index element={<VideosOverviewPage />} />
+                        <Route path="asset/:assetId" element={<VideosAssetDetailPage />} />
+                        <Route path=":uid" element={<VideosDetailShell />}>
+                          <Route index element={<Navigate to="settings" replace />} />
+                          <Route path="settings" element={<VideosSettingsTab />} />
+                          <Route path="downloads" element={<VideosDownloadsTab />} />
+                          <Route path="captions" element={<VideosCaptionsTab />} />
+                          <Route path="embed" element={<VideosEmbedTab />} />
+                          <Route path="json" element={<VideosJsonTab />} />
+                          <Route path="public-details" element={<VideosPublicDetailsTab />} />
+                          <Route path="tags" element={<VideosTagsTab />} />
+                        </Route>
+                      </Route>
                       <Route
                         path="/dashboard/images"
                         element={

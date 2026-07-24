@@ -29,6 +29,15 @@ export function isProductItemActive(pathname: string, item: ShellProductItem, se
     return item.children.some((child) => isProductItemActive(pathname, child, search));
   }
   if (!item.path) return false;
+  const p = normalizeDashboardPath(pathname);
+  // Media ▾ — Videos wins over Images for /dashboard/images/videos/*
+  if (item.id === 'media-videos') {
+    return pathMatches(p, '/dashboard/images/videos', 'prefix');
+  }
+  if (item.id === 'media-images') {
+    if (!pathMatches(p, '/dashboard/images', 'prefix')) return false;
+    return !pathMatches(p, '/dashboard/images/videos', 'prefix');
+  }
   if (item.id === 'examples') {
     return isAgentExamplesTabActive(pathname, search);
   }
@@ -43,6 +52,10 @@ export function isProductItemActive(pathname: string, item: ShellProductItem, se
 
 export function resolveActiveProduct(pathname: string): ShellProductId | null {
   const p = normalizeDashboardPath(pathname);
+  // Prefer Media for any Hosted images / Videos path before Create/Code home matches.
+  if (pathMatches(p, '/dashboard/images', 'prefix')) {
+    return 'media';
+  }
   for (const product of SHELL_PRODUCTS) {
     if (pathMatches(p, product.home, product.home.includes('agent') ? 'prefix' : 'exact')) {
       return product.id;

@@ -9,6 +9,7 @@ import {
   Clapperboard,
   Code2,
   FolderKanban,
+  ImageIcon,
   Layers,
   MessageSquare,
   Palette,
@@ -20,7 +21,9 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   SHELL_CORE_NAV,
+  SHELL_MEDIA_PRODUCT,
   SHELL_PRODUCTS,
+  type ShellProduct,
   type ShellProductId,
   type ShellProductItem,
 } from '../../config/shellNav';
@@ -33,10 +36,14 @@ import { ActivityRailItem } from './DashboardActivityNav';
 import { AgentChatSessionList } from './AgentChatSessionList';
 
 const PRODUCT_ICONS: Record<ShellProductId, ComponentType<{ size?: number; className?: string }>> = {
+  media: ImageIcon,
   code: Code2,
   create: Palette,
   collaborate: CalendarDays,
 };
+
+/** Media sits below Work; Code / Create / Collaborate stay under Products. */
+const SHELL_PRODUCTS_BELOW_MEDIA: ShellProduct[] = SHELL_PRODUCTS.filter((p) => p.id !== 'media');
 
 type DashboardSidebarProps = {
   expanded: boolean;
@@ -128,6 +135,135 @@ export function DashboardSidebar({
     setExpandedProduct((cur) => (cur === id ? null : id));
   };
 
+  const renderProductBlock = (product: ShellProduct) => {
+    const ProductIcon = PRODUCT_ICONS[product.id];
+    const productActive = activeProduct === product.id;
+    const isOpen = expandedProduct === product.id;
+
+    return (
+      <div key={product.id} className="flex flex-col">
+        <div className={`flex items-center ${expanded ? 'pr-1' : ''}`}>
+          <ActivityRailItem
+            icon={ProductIcon}
+            label={product.label}
+            expanded={expanded}
+            active={productActive}
+            onClick={() => {
+              go(product.home);
+              setExpandedProduct(product.id);
+            }}
+          />
+          {expanded ? (
+            <button
+              type="button"
+              className="shrink-0 p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]/60"
+              aria-label={isOpen ? `Collapse ${product.label}` : `Expand ${product.label}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleProduct(product.id);
+              }}
+            >
+              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          ) : null}
+        </div>
+        {expanded && isOpen ? (
+          <div className="ml-3 pl-2 border-l border-[var(--dashboard-border)]/80 flex flex-col gap-0.5 mb-1">
+            {product.items.map((child) => {
+              if (child.children?.length) {
+                const groupActive = isProductItemActive(location.pathname, child, location.search);
+                const nestedOpen = isNestedOpen(child);
+                return (
+                  <div key={child.id} className="flex flex-col gap-0.5">
+                    <div className="flex items-center pr-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (child.path) go(child.path);
+                          setExpandedNested((prev) => ({ ...prev, [child.id]: true }));
+                        }}
+                        className={`flex flex-1 items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
+                          groupActive
+                            ? 'text-main bg-[var(--bg-hover)]/40'
+                            : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
+                        }`}
+                      >
+                        <span className="truncate">{child.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="shrink-0 p-0.5 rounded text-muted hover:text-main"
+                        aria-label={nestedOpen ? `Collapse ${child.label}` : `Expand ${child.label}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedNested((prev) => ({
+                            ...prev,
+                            [child.id]: !nestedOpen,
+                          }));
+                        }}
+                      >
+                        {nestedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      </button>
+                    </div>
+                    {nestedOpen ? (
+                      <div className="ml-2 pl-2 border-l border-[var(--dashboard-border)]/60 flex flex-col gap-0.5 pb-0.5">
+                        {child.children.map((sub) => {
+                          const subActive = sub.path
+                            ? isProductItemActive(location.pathname, sub, location.search)
+                            : false;
+                          const editorHref =
+                            sub.id === 'cms-editor' ? '/dashboard/cms/pages' : sub.path;
+                          return (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              onClick={() => {
+                                if (editorHref) go(editorHref);
+                              }}
+                              className={`flex items-center gap-2 w-full text-left min-h-[30px] px-2 rounded-md text-[11px] font-medium transition-colors ${
+                                subActive
+                                  ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
+                                  : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
+                              }`}
+                            >
+                              <span className="truncate">{sub.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
+              const childActive = child.path
+                ? isProductItemActive(location.pathname, child, location.search)
+                : false;
+              return (
+                <button
+                  key={child.id}
+                  type="button"
+                  onClick={() => {
+                    if (child.path) go(child.path);
+                  }}
+                  className={`flex items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
+                    childActive
+                      ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
+                      : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
+                  }`}
+                >
+                  {child.id === 'moviemode' ? (
+                    <Clapperboard size={13} strokeWidth={1.5} className="shrink-0 opacity-80" />
+                  ) : null}
+                  <span className="truncate">{child.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0 gap-0.5">
       <div className="flex flex-col gap-0.5 shrink-0 pb-1 mb-0.5 border-b border-[var(--dashboard-border)]/60">
@@ -207,6 +343,10 @@ export function DashboardSidebar({
         })}
       </div>
 
+      <div className="flex flex-col gap-0.5 shrink-0 mt-1">
+        {renderProductBlock(SHELL_MEDIA_PRODUCT)}
+      </div>
+
       {expanded ? (
         <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted opacity-70">
           Products
@@ -216,136 +356,7 @@ export function DashboardSidebar({
       )}
 
       <div className="flex flex-col gap-0.5 shrink-0">
-        {SHELL_PRODUCTS.map((product) => {
-          const ProductIcon = PRODUCT_ICONS[product.id];
-          const productActive = activeProduct === product.id;
-          const isOpen = expandedProduct === product.id;
-
-          return (
-            <div key={product.id} className="flex flex-col">
-              <div className={`flex items-center ${expanded ? 'pr-1' : ''}`}>
-                <ActivityRailItem
-                  icon={ProductIcon}
-                  label={product.label}
-                  expanded={expanded}
-                  active={productActive}
-                  onClick={() => {
-                    go(product.home);
-                    setExpandedProduct(product.id);
-                  }}
-                />
-                {expanded ? (
-                  <button
-                    type="button"
-                    className="shrink-0 p-1 rounded text-muted hover:text-main hover:bg-[var(--bg-hover)]/60"
-                    aria-label={isOpen ? `Collapse ${product.label}` : `Expand ${product.label}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleProduct(product.id);
-                    }}
-                  >
-                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                  </button>
-                ) : null}
-              </div>
-              {expanded && isOpen ? (
-                <div className="ml-3 pl-2 border-l border-[var(--dashboard-border)]/80 flex flex-col gap-0.5 mb-1">
-                  {product.items.map((child) => {
-                    if (child.children?.length) {
-                      const groupActive = isProductItemActive(location.pathname, child, location.search);
-                      const nestedOpen = isNestedOpen(child);
-                      return (
-                        <div key={child.id} className="flex flex-col gap-0.5">
-                          <div className="flex items-center pr-0.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (child.path) go(child.path);
-                                setExpandedNested((prev) => ({ ...prev, [child.id]: true }));
-                              }}
-                              className={`flex flex-1 items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
-                                groupActive
-                                  ? 'text-main bg-[var(--bg-hover)]/40'
-                                  : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
-                              }`}
-                            >
-                              <span className="truncate">{child.label}</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="shrink-0 p-0.5 rounded text-muted hover:text-main"
-                              aria-label={nestedOpen ? `Collapse ${child.label}` : `Expand ${child.label}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedNested((prev) => ({
-                                  ...prev,
-                                  [child.id]: !nestedOpen,
-                                }));
-                              }}
-                            >
-                              {nestedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                            </button>
-                          </div>
-                          {nestedOpen ? (
-                            <div className="ml-2 pl-2 border-l border-[var(--dashboard-border)]/60 flex flex-col gap-0.5 pb-0.5">
-                              {child.children.map((sub) => {
-                                const subActive = sub.path
-                                  ? isProductItemActive(location.pathname, sub, location.search)
-                                  : false;
-                                const editorHref =
-                                  sub.id === 'cms-editor'
-                                    ? '/dashboard/cms/pages'
-                                    : sub.path;
-                                return (
-                                  <button
-                                    key={sub.id}
-                                    type="button"
-                                    onClick={() => {
-                                      if (editorHref) go(editorHref);
-                                    }}
-                                    className={`flex items-center gap-2 w-full text-left min-h-[30px] px-2 rounded-md text-[11px] font-medium transition-colors ${
-                                      subActive
-                                        ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
-                                        : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
-                                    }`}
-                                  >
-                                    <span className="truncate">{sub.label}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    }
-                    const childActive = child.path
-                      ? isProductItemActive(location.pathname, child, location.search)
-                      : false;
-                    return (
-                      <button
-                        key={child.id}
-                        type="button"
-                        onClick={() => {
-                          if (child.path) go(child.path);
-                        }}
-                        className={`flex items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
-                          childActive
-                            ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
-                            : 'text-muted hover:text-main hover:bg-[var(--bg-hover)]/40'
-                        }`}
-                      >
-                        {child.id === 'moviemode' ? (
-                          <Clapperboard size={13} strokeWidth={1.5} className="shrink-0 opacity-80" />
-                        ) : null}
-                        <span className="truncate">{child.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+        {SHELL_PRODUCTS_BELOW_MEDIA.map((product) => renderProductBlock(product))}
       </div>
 
       {expanded ? (
