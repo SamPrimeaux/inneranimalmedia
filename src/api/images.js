@@ -2378,6 +2378,28 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
     return jsonResponse({ error: 'Not found' }, 404);
   }
 
+  if (pathLower === '/api/images/batch/tags' && method === 'POST') {
+    return handleBatchTags(request, url, env, authUser, identity);
+  }
+
+  if (pathLower === '/api/images/batch/delete' && method === 'POST') {
+    return handleBatchDelete(request, url, env, authUser, identity);
+  }
+
+  if (pathLower === '/api/images/batch/migrate' && method === 'POST') {
+    return handleBatchMigrate(request, url, env, authUser, identity);
+  }
+
+  const transformMatch = path.match(/^\/api\/images\/([^/]+)\/transform$/i);
+  if (transformMatch && method === 'POST') {
+    return handleTransformCommit(request, url, env, authUser, identity, transformMatch[1]);
+  }
+
+  const previewMatch = path.match(/^\/api\/images\/([^/]+)\/preview-url$/i);
+  if (previewMatch && method === 'GET') {
+    return handlePreviewUrl(url, env, authUser, identity, previewMatch[1]);
+  }
+
   const patchMatch = path.match(/^\/api\/images\/([^/]+)$/i);
   if (patchMatch && method === 'PATCH') {
     return handlePatchImage(request, url, env, authUser, identity, patchMatch[1]);
@@ -2386,6 +2408,11 @@ export async function handleImagesApi(request, url, env, authUser, identity) {
   const delMatch = path.match(/^\/api\/images\/([^/]+)$/i);
   if (delMatch && method === 'DELETE') {
     return handleDelete(delMatch[1], request, url, env, authUser, identity);
+  }
+
+  const detailMatch = path.match(/^\/api\/images\/([^/]+)$/i);
+  if (detailMatch && method === 'GET') {
+    return handleGetImageDetail(url, env, authUser, identity, detailMatch[1]);
   }
 
   return jsonResponse({ error: 'Not found' }, 404);
