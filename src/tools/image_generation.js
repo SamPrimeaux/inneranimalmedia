@@ -1734,12 +1734,23 @@ async function streamImageGenerationVariationsSse(emit, env, toolName, params, c
 }
 
 export async function streamImageGenerationSse(emit, env, toolName, params, ctx = {}) {
-  const requestedVariations = Math.max(1, Math.min(4, Math.floor(Number(params.variations) || 1)));
+  // BUGFIX 2026-07-24: model reliably sends a `prompts` array for multi-image asks but
+  // does not reliably also set `variations` (observed live: prompts:[3 distinct strings],
+  // no variations key -> silently took the single-image path). Infer the count from
+  // prompts.length when variations is absent, so the model doesn't need to remember two
+  // separate parameters for the same intent.
+  const explicitVariations = Number(params.variations);
+  const inferredFromPrompts =
+    Array.isArray(params.prompts) && params.prompts.length > 1 ? params.prompts.length : null;
+  const requestedVariations = Math.max(
+    1,
+    Math.min(4, Math.floor(explicitVariations || inferredFromPrompts || 1)),
+  );
   if (requestedVariations > 1 && toolName !== 'imgx_edit_image') {
     return await streamImageGenerationVariationsSse(emit, env, toolName, params, ctx, requestedVariations);
   }
   const generationId = `igen_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-  const prompt = String(params.prompt || params.description || '').trim();
+  const prompt = String(params.prompt || params.description || (Array.isArray(params.prompts) ? params.prompts[0] : '') || '').trim();
   let resolvedParams = await applyImageTierDefaults(env, { ...params, prompt }, {
     workspaceId: ctx.workspaceId,
     tenantId: ctx.tenantId,
