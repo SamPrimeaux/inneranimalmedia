@@ -624,6 +624,34 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       console.warn('[agent] named_catalog_pin', e?.message ?? e);
     }
   }
+  // Per-turn image pin — session-cached core-8 does not include imgx; belt≠wire without this.
+  let imageAskForTurn = false;
+  try {
+    const td = mcpCtx?.turnDecision || mcpCtx?.precomputedTurnDecision || null;
+    imageAskForTurn = td?.imageFastPath === true;
+    if (!imageAskForTurn) {
+      const { hasImageGenerationIntent } = await import('../tools/image_generation.js');
+      imageAskForTurn = hasImageGenerationIntent(userTextForForce);
+    }
+    if (imageAskForTurn && env?.DB && Array.isArray(activeTools)) {
+      const { pinImageGenerationToolsForTurn } = await import('./progressive-tool-discovery.js');
+      const imgPin = await pinImageGenerationToolsForTurn(env, activeTools, {
+        userMessage: userTextForForce,
+        imageAsk: true,
+        allowMediaTools: true,
+      });
+      if (imgPin.added.length) {
+        activeTools = imgPin.tools;
+        emit('tools_hydrated', {
+          source: 'image_capability_pin',
+          added: imgPin.added,
+          active_tools: activeTools.length,
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[agent] image_capability_pin', e?.message ?? e);
+  }
   let forcedExplicitName =
     (seeded?.name && String(seeded.name).trim()) ||
     resolveForcedExplicitCatalogTool(userTextForForce, activeTools);
@@ -2538,7 +2566,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 env,
                 activeTools,
                 execResult,
-                { preferKeys, userMessage },
+                {
+                  preferKeys,
+                  userMessage,
+                  allowMediaTools: imageAskForTurn === true,
+                  imageAsk: imageAskForTurn === true,
+                },
               );
               if (hydrated.added.length) {
                 activeTools = hydrated.tools;

@@ -133,8 +133,34 @@ function matchesKeywordPrimary(m, kw) {
   if (kw.nounRe.test(m) && m.split(/\s+/).length >= 3 && /\b(poster|wallpaper|banner|thumbnail|illustration|favicon|app icon)\b/i.test(m)) {
     return true;
   }
+  // Visual layouts without the word "image" (floor plans, concept sketches)
+  if (isVisualLayoutGenerationAsk(m)) return true;
   if (/\b(imgx_|dall[- ]?e|imagen|gpt-image|image gen)\b/i.test(m)) return true;
   if (/\b(visual asset|marketing asset|brand asset|social preview)\b/i.test(m)) return true;
+  return false;
+}
+
+/**
+ * Generate/draw/render + floor-plan/layout/sketch — ChatGPT-shaped visual ask without "image".
+ * @param {string} m
+ */
+export function isVisualLayoutGenerationAsk(m) {
+  const text = String(m || '').trim();
+  if (!text) return false;
+  if (
+    /\b(generate|create|make|draw|render|sketch)\b[\s\S]{0,100}\b(floor[- ]?plans?|layouts?|elevations?|blueprints?|site\s+plans?|concept\s+sketches?|architectural\s+sketches?|room\s+arrangements?|mockups?|variations?)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(floor[- ]?plans?|layouts?|elevations?|blueprints?|site\s+plans?)\b[\s\S]{0,60}\b(generate|create|make|draw|render|sketch)\b/i.test(
+      text,
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -148,6 +174,7 @@ function shouldEscalateToClassifier(m, kw) {
   if (kw.verbRe.test(m)) return true;
   if (kw.escalateRe && kw.escalateRe.test(m)) return true;
   if (isImageRevisionFollowUpCue(m)) return true;
+  if (isVisualLayoutGenerationAsk(m)) return true;
   // Descriptive "of a …" creatives without listed noun (the photo/mug class of bugs)
   if (/\b(of|showing|featuring)\s+(a|an|the)\b/i.test(m) && words >= 6) return true;
   if (/\b(clean|cinematic|product|brand|mockup|lifestyle)\b/i.test(m) && words >= 6) return true;
@@ -456,6 +483,7 @@ export function hasImageGenerationIntentSync(message, kw = null) {
   const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m) || isEngineeringTicketOrPlaybookDump(m)) return false;
   if (isPrimaryImageGenerationIntentSync(m, kw)) return true;
+  if (isVisualLayoutGenerationAsk(m)) return true;
   if (
     /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b/i.test(
       m,

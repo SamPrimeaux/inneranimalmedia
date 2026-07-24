@@ -5,6 +5,15 @@
  * SSOT plan: plans/active/CURSOR-PARITY-TOOL-DISCOVERY-2026-07.md
  */
 
+import {
+  hasImageGenerationIntentSync,
+  isVisualLayoutGenerationAsk,
+} from './image-intent-gate.js';
+import { hasImageGenerationIntent, hasVideoGenerationIntent } from '../tools/image_generation.js';
+
+/** Pinned onto the active wire menu when the turn is a visual generation ask. */
+export const IMAGE_GENERATION_PIN_TOOL_KEYS = Object.freeze(['imgx_generate_image']);
+
 /**
  * Always-on schemas for agent / debug / multitask turn 0.
  * D1 stays on the profile ceiling — discover via agentsam_search_tools (not free at turn 0).
@@ -344,7 +353,11 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
     .filter(Boolean);
   const fromSearch = extractToolKeysFromSearchToolsResult(execResult);
   const allowMedia =
-    opts.allowMediaTools === true || userMessageAllowsMediaToolHydrate(opts.userMessage);
+    opts.allowMediaTools === true ||
+    userMessageAllowsMediaToolHydrate(opts.userMessage, {
+      allowMediaTools: opts.allowMediaTools,
+      imageAsk: opts.imageAsk,
+    });
 
   /** Prefer keys win so exact user-named tools beat noisy MCP list_* ranking. */
   const wanted = [];
@@ -405,22 +418,19 @@ export async function hydrateActiveToolsFromSearchResult(env, activeTools, execR
 }
 
 /**
- * HTML/"get a visual" language must not unlock imgx_/veo_ hydrate.
- * Explicit image/video generation asks still do.
+ * Shared media-hydrate judgment — same family as hasImageGenerationIntent / image-intent-gate.
+ * opts.allowMediaTools / opts.imageAsk from the turn spine always win (session-cache safe).
  * @param {string|null|undefined} userMessage
+ * @param {{ allowMediaTools?: boolean, imageAsk?: boolean }} [opts]
  */
-export function userMessageAllowsMediaToolHydrate(userMessage) {
+export function userMessageAllowsMediaToolHydrate(userMessage, opts = {}) {
+  if (opts.allowMediaTools === true || opts.imageAsk === true) return true;
   const m = String(userMessage || '');
   if (!m.trim()) return false;
-  if (/\b(imgx_|veo_|dall[- ]?e|imagen|gpt-image|image gen)\b/i.test(m)) return true;
-  if (
-    /\b(generate|create|make|draw|render)\s+(an?\s+)?(image|photo|png|jpe?g|picture|illustration|video|mp4)\b/i.test(
-      m,
-    )
-  ) {
-    return true;
-  }
-  if (/\b(generate|create)\s+image\b/i.test(m)) return true;
+  if (/\b(imgx_|veo_|dall[- ]?e|imagen|gpt-image)\b/i.test(m)) return true;
+  if (hasImageGenerationIntent(m)) return true;
+  if (hasVideoGenerationIntent(m)) return true;
+  if (hasImageGenerationIntentSync(m) || isVisualLayoutGenerationAsk(m)) return true;
   return false;
 }
 
@@ -477,4 +487,38 @@ export async function hydrateNamedCatalogTools(env, activeTools, names, opts = {
     );
   }
   return { tools: list, added };
+}
+
+/**
+ * Per-turn pin: session-cached core-8 menus still get imgx when this message is a visual ask.
+ * Works for old conversations without forceRefresh of session context.
+ * @param {any} env
+ * @param {unknown[]} activeTools
+ * @param {{
+ *   userMessage?: string|null,
+ *   imageAsk?: boolean,
+ *   allowMediaTools?: boolean,
+ *   softMax?: number,
+ * }} [opts]
+ */
+export async function pinImageGenerationToolsForTurn(env, activeTools, opts = {}) {
+  const allow = userMessageAllowsMediaToolHydrate(opts.userMessage, opts);
+  if (!allow || !env?.DB) {
+    return {
+      tools: Array.isArray(activeTools) ? activeTools : [],
+      added: [],
+      pinned: false,
+    };
+  }
+  const pinned = await hydrateNamedCatalogTools(env, activeTools, [...IMAGE_GENERATION_PIN_TOOL_KEYS], {
+    softMax: opts.softMax,
+  });
+  const hasImgx = pinned.tools.some((t) => toolNameOf(t) === 'imgx_generate_image');
+  if (pinned.added.length) {
+    console.info(
+      '[progressive-tools] image_pin',
+      JSON.stringify({ added: pinned.added, active_tools: pinned.tools.length }),
+    );
+  }
+  return { ...pinned, pinned: hasImgx };
 }

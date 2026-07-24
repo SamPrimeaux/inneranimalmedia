@@ -18,6 +18,7 @@ import {
   hasImageGenerationIntentSync,
   isExplicitImagePlanningIntent,
   isPrimaryImageGenerationIntentSync,
+  isVisualLayoutGenerationAsk,
   resolvePrimaryImageGenerationIntent,
 } from '../core/image-intent-gate.js';
 import { applyRewardEvent } from '../core/reward-events.js';
@@ -74,6 +75,7 @@ export function hasImageGenerationIntent(message) {
   const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
   if (hasImageGenerationIntentSync(m)) return true;
+  if (isVisualLayoutGenerationAsk(m)) return true;
   if (
     /\b(also|and then|plus|as well|while you'?re at it|when done)\b[\s\S]{0,48}\b(generate|create|make|design|render|draw)\b[\s\S]{0,32}\b(image|photo|logo|icon|banner|thumbnail|mockup|hero|illustration|artwork|graphic)\b/i.test(
       m,
