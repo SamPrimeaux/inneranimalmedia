@@ -3373,13 +3373,65 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         config.handler || row.handler_key || row.tool_key || row.tool_name || toolKey || '',
       ).trim();
       const { handlers: mediaHandlers } = await import('../tools/builtin/media.js');
-      const fn = mediaHandlers[handlerKey];
-      if (typeof fn !== 'function') {
-        result = { ok: false, error: `media handler not registered: ${handlerKey}` };
-        break;
+      let out;
+      const mediaFn = mediaHandlers[handlerKey];
+      if (typeof mediaFn === 'function') {
+        out = await mediaFn(params, env, runContext);
+      } else {
+        // Veo / MovieMode live in moviemode.js (ai-dispatch already routes there).
+        // Catalog rows use handler_type=media — without this fallback agents see
+        // "media handler not registered: veo_generate_video".
+        const { handlers: moviemodeHandlers } = await import('../tools/builtin/moviemode.js');
+        const mmFn = moviemodeHandlers[handlerKey];
+        if (typeof mmFn !== 'function') {
+          result = { ok: false, error: `media handler not registered: ${handlerKey}` };
+          break;
+        }
+        const mmParams = {
+          ...params,
+          user_id:
+            params?.user_id ||
+            params?.session?.user_id ||
+            runContext?.userId ||
+            runContext?.user_id ||
+            null,
+          workspace_id:
+            params?.workspace_id ||
+            params?.session?.workspace_id ||
+            runContext?.workspaceId ||
+            runContext?.workspace_id ||
+            null,
+          tenant_id:
+            params?.tenant_id ||
+            params?.session?.tenant_id ||
+            runContext?.tenantId ||
+            runContext?.tenant_id ||
+            null,
+          session: {
+            ...(params?.session && typeof params.session === 'object' ? params.session : {}),
+            user_id:
+              params?.session?.user_id ||
+              runContext?.userId ||
+              runContext?.user_id ||
+              null,
+            workspace_id:
+              params?.session?.workspace_id ||
+              runContext?.workspaceId ||
+              runContext?.workspace_id ||
+              null,
+            tenant_id:
+              params?.session?.tenant_id ||
+              runContext?.tenantId ||
+              runContext?.tenant_id ||
+              null,
+          },
+        };
+        out = await mmFn(env, mmParams);
       }
-      const out = await fn(params, env, runContext);
-      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      result =
+        out?.ok === false || out?.error
+          ? { ok: false, error: String(out?.error || 'media tool failed'), body: out }
+          : { ok: true, body: out };
       break;
     }
 

@@ -78,6 +78,19 @@ Inverse of `tkt_search_tools_rank_media_last` (don’t hydrate media when *not* 
 2. When on `/dashboard/images/:id`, pin image URL / `img_*` into tool args context so Veo image-to-video has a source — never require `web_fetch` for the open asset.
 3. Fail loud with a recoverable assistant message if Veo still cannot run; do not dead-end on `web_fetch` `url required`.
 
+## Failure C — Veo hydrated but handler missing (2026-07-24 ~10:14 CDT)
+
+**agent_run:** `arun_bebb588ecf5e` · model `claude-haiku-4-5-20251001` · chat **Canceled** after tool_error  
+**UI:** `media handler not registered: veo_generate_video` after search returned the catalog row.
+
+| Signal | Value | Implication |
+|--------|--------|-------------|
+| Hydrate | `veo_generate_video` **added** (no media_hydrate_deferred) | Intent gate OK this turn |
+| Exec | `tool_error veo_generate_video media handler not registered` | Catalog `handler_type=media` → `media.js` only |
+| Truth | Handler lives in `src/tools/builtin/moviemode.js` | `ai-dispatch.js` already routes Veo/MovieMode there |
+
+**Fix:** `catalog-tool-executor.js` media/canvas case falls back to `moviemode` handlers with `(env, params)` + identity merge (parity with `ai-dispatch`).
+
 ## Evidence (R2 — before snapshots)
 
 Prefix `ticket-evidence/2026-07-24-media-qa/` on bucket `inneranimalmedia`:
@@ -98,6 +111,7 @@ Prefix `ticket-evidence/2026-07-24-media-qa/` on bucket `inneranimalmedia`:
 - [ ] Page asset id + attachment bound in context (`img_*` + URL).
 - [ ] Monaco shows Python source when an artifact is text.
 - [ ] “Turn this into a video / short clip preview” from image detail → `veo_generate_video` hydrated (not deferred as `non_media_user_message`).
+- [ ] Catalog exec of `veo_generate_video` / `moviemode_*` resolves moviemode handlers (no `media handler not registered`).
 - [ ] No `web_fetch` required to reference the open hosted image for image→video.
 - [ ] Tier 1 + Tier 2 E2E with conversation + turn ids before `shipped`.
 

@@ -334,6 +334,10 @@ export function hasVideoGenerationIntent(message) {
   if (!m) return false;
   return (
     /\b(generate|create|make|produce|render)\b.{0,40}\b(video|clip|footage|movie|animation)\b/i.test(m) ||
+    // "turn this into a video" / "video creating tools" / "short clip preview"
+    /\b(turn|convert|animate)\b.{0,40}\b(into\s+)?(a\s+)?(video|clip|footage|movie|animation)\b/i.test(m) ||
+    /\b(video|clip)\b.{0,40}\b(creat|generat|preview|tool)/i.test(m) ||
+    /\b(short\s+)?(clip|video)\s+preview\b/i.test(m) ||
     /\b(veo|sora|text.to.video|video.gen|moviemode)\b/i.test(m)
   );
 }
