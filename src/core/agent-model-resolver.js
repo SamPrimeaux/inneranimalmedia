@@ -345,15 +345,55 @@ export function intentSlugFromHeuristic(taskType, mode, modeConfig) {
   return `${tt}_${md}`;
 }
 
-export async function gateRewriteAndClassify(_env, modeConfig, message, _tenantId) {
-  const { taskType, mode } = inferIntentHeuristically(message);
+/**
+ * Classify for routing-arm slug selection.
+ *
+ * When `env.DB` is available: authority is {@link resolveTurnDecision} → one
+ * `agentsam_intent_decisions` row (spine). Never use bare regex as authority.
+ *
+ * DOCUMENTED_EXCEPTION (tkt_p0_infer_intent_heuristically): if D1 is unavailable
+ * (local cold-start / misconfigured worker), fall back to
+ * `inferIntentHeuristically` so the process can still boot. That path must not
+ * run on production hot paths with DB bound.
+ */
+export async function gateRewriteAndClassify(env, modeConfig, message, tenantId) {
+  const raw = String(message || '');
+  if (env?.DB) {
+    const { resolveTurnDecision } = await import('./turn-decision.js');
+    const td = await resolveTurnDecision(
+      env,
+      raw,
+      { tenantId: tenantId ?? null },
+      {},
+    );
+    const taskType = td.taskSpec?.taskType || td.taskType || 'chat';
+    const mode =
+      td.taskSpec?.mode ||
+      td.chatResult?.mode ||
+      modeConfig?.slug ||
+      modeConfig?.mode ||
+      'agent';
+    return {
+      intent: intentSlugFromHeuristic(taskType, mode, modeConfig),
+      rewritten_query: raw,
+      confidence: Number(td.taskSpec?.confidence ?? td.confidence ?? 0.85) || 0.85,
+      taskType,
+      mode,
+      decisionId: td.decisionId || null,
+      matchedBy: td.matchedBy || null,
+    };
+  }
+
+  // DOCUMENTED_EXCEPTION — no D1 binding; bootstrap only (see ticket + ROUTING-SPINE law).
+  const { taskType, mode } = inferIntentHeuristically(raw);
   const intentSlug = intentSlugFromHeuristic(taskType, mode, modeConfig);
   return {
     intent: intentSlug,
-    rewritten_query: message,
+    rewritten_query: raw,
     confidence: 0.85,
     taskType,
     mode,
+    matchedBy: 'bootstrap_no_d1',
   };
 }
 

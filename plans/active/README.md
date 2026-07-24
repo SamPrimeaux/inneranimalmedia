@@ -47,8 +47,10 @@ Work **in this order**. Do not parallelize product remasters across these.
 
 - Counts: default `required_pass_count = 2` (Tier 1+2). Control-plane / deploy-trail / identity / ledger tickets use **`required_pass_count = 3`**.
 - Ship gate: `consecutive_pass_count >= required_pass_count` **and** either ≥N green `agentsam_gate_runs` **or** ≥N `agentsam_ticket_events` (`event_type = 'e2e_pass'`) with proof IDs in `detail`.
+- **`in_review` gate (2026-07-24):** do not flip to `in_review` on vibes. Run `npm run audit:p0-closeout -- --ticket=tkt_…` first — verdict must not be `CONFLICT` / `MISSING_ROW`. Record Tier 1 in the same change set. `in_review` with zero `e2e_pass` events is drift → downgrade to `active`.
 - Cross-session: re-check from raw data every time — never “fine last chat.”
 - Commands:
+  - `npm run audit:p0-closeout` / `npm run audit:p0-closeout:all`
   - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1 --detail='…'`
   - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=2 --detail='…'`
   - `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=3 --detail='…'` (control-plane)
@@ -57,7 +59,7 @@ Work **in this order**. Do not parallelize product remasters across these.
   - `npm run gate:agent-routing` / `gate:agent-routing:twice` — mint session goldens when applicable
   - `npm run sync:active-plan-tickets` — every `plans/active/*.md` must have a D1 ticket (`--apply` to insert)
 
-Cursor: `.cursor/rules/iam-ticket-dual-pass-e2e.mdc` · D1 `rule_ticket_dual_pass_e2e`
+Cursor: `.cursor/rules/iam-ticket-dual-pass-e2e.mdc` · D1 `rule_ticket_dual_pass_e2e` · `scripts/audit_p0_in_review_closeout.py`
 
 Operating rule for Cursor: see each ticket and `plans/README.md`.
 

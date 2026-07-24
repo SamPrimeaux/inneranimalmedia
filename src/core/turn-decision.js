@@ -240,6 +240,8 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
 
   let kw;
   try {
+    // DOCUMENTED_EXCEPTION (tkt_p0_infer_intent_heuristically): inferIntentHeuristically
+    // only when env.DB is missing (cold-start). With D1, keywords/spine own authority.
     kw = env?.DB
       ? await inferIntentFromKeywords(env, raw, { spineMode: true })
       : inferIntentHeuristically(raw);
@@ -247,7 +249,7 @@ export async function resolveTurnDecision(env, message, ctx = {}, opts = {}) {
     console.warn('[turn-decision] chat keywords failed', e?.message ?? e);
     kw = env?.DB
       ? { taskType: 'chat', mode: 'agent', confidence: 0.4, matchedBy: 'keyword_error', escalateCue: true }
-      : inferIntentHeuristically(raw);
+      : inferIntentHeuristically(raw); // DOCUMENTED_EXCEPTION — no D1 recovery path
   }
 
   // When image fast path wins, do not let chat escalate invent cms_edit / skill_use.

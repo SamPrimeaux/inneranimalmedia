@@ -44,4 +44,13 @@ Assert refuses `--set-shipped` unless `consecutive_pass_count >= required_pass_c
 - Control-plane: wait for Tier 3 (gate on a later real ship) before `--set-shipped`.
 - Do **not** `UPDATE status='shipped'` ad hoc unless assert is green (or `SKIP_TICKET_DUAL_PASS=1` + explicit note — rare).
 
-SSOT: `plans/active/README.md` · D1 `rule_ticket_dual_pass_e2e` · `scripts/assert-ticket-shippable.mjs`
+## in_review gate (LOCKED — 2026-07-24)
+
+Do **not** move a ticket to `in_review` on vibes or “code looks done.”
+
+1. Run `npm run audit:p0-closeout -- --ticket=tkt_…` (or full closeout cluster).
+2. Verdict must **not** be `CONFLICT` or `MISSING_ROW`.
+3. Prefer recording Tier 1 in the same change set: `npm run record:ticket-e2e-pass -- --ticket=tkt_… --tier=1 --detail='…' --status=in_review`.
+4. `in_review` with `consecutive_pass_count=0` and zero `e2e_pass` events is **drift** — downgrade to `active` with a status_reason.
+
+SSOT: `plans/active/README.md` · D1 `rule_ticket_dual_pass_e2e` · `scripts/assert-ticket-shippable.mjs` · `scripts/audit_p0_in_review_closeout.py`

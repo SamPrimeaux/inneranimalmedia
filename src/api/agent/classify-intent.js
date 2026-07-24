@@ -116,6 +116,8 @@ export const buildClassifyResult = buildResult;
 
 /**
  * Sync bootstrap (no D1). Kept for parity / cold path.
+ * DOCUMENTED_EXCEPTION (tkt_p0_infer_intent_heuristically): this *is* the bootstrap
+ * implementation. Callers with env.DB must use resolveTurnDecision / inferIntentFromKeywords.
  * @param {string} text
  */
 export function inferIntentHeuristically(text) {
@@ -339,7 +341,9 @@ export async function inferIntentFromKeywords(env, lastMessageText, opts = {}) {
     };
   }
 
-  // Compound leftovers that flat keywords miss (bootstrap only — not spine authority)
+  // DOCUMENTED_EXCEPTION (tkt_p0_infer_intent_heuristically): compound leftovers that
+  // flat D1 keywords miss — bootstrap / non-spineMode only. Spine mode never reaches here
+  // (returns early above). Not spine authority when D1 keywords are loaded.
   const boot = inferIntentHeuristically(stripped);
   return { ...boot, escalateCue: escalateCue || boot.confidence < 0.8 };
 }

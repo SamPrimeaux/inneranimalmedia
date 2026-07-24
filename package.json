@@ -182,6 +182,8 @@
     "d1:apply-pending:apply": "./scripts/with-cloudflare-env.sh node scripts/d1-apply-pending.mjs --apply",
     "status": "python3 scripts/platform_brief.py",
     "status:check": "python3 scripts/platform_brief.py --check",
+    "audit:p0-closeout": "python3 scripts/audit_p0_in_review_closeout.py",
+    "audit:p0-closeout:all": "python3 scripts/audit_p0_in_review_closeout.py --cluster=all",
     "heal:cf-oauth-account-ids": "node scripts/heal-cloudflare-oauth-account-ids.mjs",
     "d1:migrations:backfill-450-522": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./scripts/sql/d1_migrations_backfill_450_522.sql",
     "test:d1-apply-pending": "node --test tests/unit/d1-apply-pending.test.js",
