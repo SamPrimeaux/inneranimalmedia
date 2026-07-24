@@ -318,18 +318,6 @@ export function ImagesDeliveryVariantCreatePage() {
             {width || '—'} × {height || '—'}
             {metadata !== 'none' ? ` · metadata=${metadata}` : ''}
           </div>
-          <div
-            style={{
-              marginTop: 4,
-              fontSize: 10,
-              color: 'var(--text-muted)',
-              textAlign: 'center',
-              opacity: 0.7,
-            }}
-          >
-            Live preview via flexible variants on a demo image — saving still requires
-            creating this as a named variant in the CF dashboard or Images API.
-          </div>
         </div>
       </div>
 
