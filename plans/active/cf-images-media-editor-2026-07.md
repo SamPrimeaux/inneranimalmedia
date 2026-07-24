@@ -187,9 +187,10 @@ export const IMAGES_TABS = [
 | **Drive** | Point to Sourcing Kit / import (or disable with CTA) | File count when connected | **Connect Google Drive** OAuth · reconnect if token dead |
 | **All** | Prefer CF Images if connected, else R2 if connected, else Connect CTAs | Combined stored count; transformed only if CF Images | Show primary connected account + “manage connections” |
 
-#### Cloudflare OAuth scope note (Lane 3 / Keys)
+#### Cloudflare OAuth scope note (Lane 1)
 
-Today `CLOUDFLARE_OAUTH_SCOPES` in `src/api/oauth.js` includes **R2** (`workers-r2.*`) but **does not** include Cloudflare Images scopes. R2 browse/upload via CF OAuth is the easy path. **CF Images for customers requires adding Images scopes on the IAM OAuth client** (dash → OAuth clients) **and** to `CLOUDFLARE_OAUTH_SCOPES` (or `CLOUDFLARE_OAUTH_SCOPES` env), then users **re-consent**. Until then: Keys page must say “R2 connected; Images not authorized — reconnect with Images permission.” Platform Sam continues via platform token / hash vars.
+`CLOUDFLARE_OAUTH_SCOPES` in `src/api/oauth.js` includes R2 **and** Images (`images.read`, `images.write`, `images.metadata_read`). Those scopes must also be **enabled on the OAuth client** (Manage Account → OAuth clients, or API with a token that has OAuth Clients Write — `CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN` when valid). After client update, users **re-consent**. Until client scopes are live, Keys page must say “reconnect Cloudflare with Images permission.”
+
 
 ### F3 — Detail page (`/dashboard/images/:id`)
 
@@ -198,9 +199,12 @@ Mirror CF dashboard structure:
 
 - Breadcrumb: `Images > Storage > {filename}`
 - Header actions: **Export** · **Edit** · **Share** · **Delete**
-- Left: Image ID, Created, Filename, Creator, Visibility, Tags (+ Add tag)
+- Left: Image ID, Created, Filename, Creator, Visibility, Tags (**+ Add tag** button)
+- **+ Add tag dropdown (required UX — match CF screenshots):** search box → list of existing tags → if typed value unmatched, show **Create key '{tag}'** row; selecting creates/adds tag via PATCH
 - Right: Metadata JSON (tenant/workspace/user + iam_* fields)
-- Below: Variant grid (`avatar` `hero` `large` `medium` `public` `small` `thumbnail`) + large preview for selected variant
+- Below: Variant grid (`avatar` 200×200, `hero`, `large`, `medium`, `public`, `small` 400×400, `thumbnail`) + large preview for selected variant
+- **Default preview sizing:** gallery + detail default use `cloudflareImageUrl` → **avatar on mobile**, **small on desktop**
+
 
 | File | Role |
 |------|------|
@@ -539,12 +543,97 @@ Rebuild `/dashboard/images` as a Cloudflare-style Images product (gallery + deta
 
 ## 15. Three-lane accountability (Cursor · Claude · ChatGPT)
 
-**No overlap rule:** each lane owns distinct paths. Do not “explore the whole DAM.” Read this file + your lane only. Discovery outside your files is out of scope.
+**No overlap rule:** each lane owns distinct paths. Do not “explore the whole DAM.” Read this file + your lane only.
 
 | Lane | Agent | Owns |
 |------|-------|------|
-| **1** | **Cursor** | Shell/UI routes, gallery, detail, tags, share, pagination defaults, `cloudflareImageUrl` helper |
-| **2** | **Claude** | CF Images binding, transform/edit, derivatives migration, `.draw()`, batch API, limits, wrangler `IMAGES` |
-| **3** | **ChatGPT** | Drive OAuth persist fix, Sourcing Kit, Keys/capabilities/tenancy, Direct Creator Upload, Agent F–style QC scorecard fill |
+| **1** | **Cursor** | Full Storage/Detail UI chrome + Add-tag UX; gallery `…` menus; responsive previews (`avatar`/`small`); **wrangler `IMAGES` binding**; **CF OAuth Images scopes** (`images.read`/`write`/`metadata_read` in code + OAuth client on CF); Share modal UI |
+| **2** | **Claude** | `cf-images-transform.js`, edit pipeline, derivatives migration, `.draw()`, batch API, limits enforcement, preview-url/transform APIs — **does not** touch wrangler IMAGES or OAuth scopes |
+| **3** | **ChatGPT** | Drive OAuth persist, Sourcing Kit / Keys pages, capabilities tenancy, Direct Creator Upload, §13 QC scorecard |
 
-Merge order: Lane 1 shell → Lane 3 capabilities/Drive → Lane 2 transform → Lane 3 QC green → Cursor `deploy:full`.
+Merge order: Lane 1 foundations (binding + OAuth + UI shell) → Lane 3 Drive/Keys → Lane 2 transform guts → Lane 3 QC → Cursor `deploy:full`.
+
+---
+
+### Lane 1 — Cursor (copy/paste brief) — UPDATED
+
+```
+You are LANE 1 (Cursor) for Inner Animal Media Media Library rebuild.
+SSOT: plans/active/cf-images-media-editor-2026-07.md (latest main).
+
+MY DUTIES (must fully implement):
+
+A) FOUNDATIONS
+1. wrangler.jsonc + wrangler.production.toml: images.binding = "IMAGES"
+2. CF OAuth: add images.read, images.write, images.metadata_read to CLOUDFLARE_OAUTH_SCOPES in src/api/oauth.js
+3. Enable those scopes on the live OAuth client (CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN / dash Manage Account → OAuth clients). Users must re-consent after.
+4. Helper dashboard/src/lib/cloudflareImageUrl.ts — gallery/detail previews:
+   - mobile / narrow: variant avatar (200×200)
+   - desktop: variant small (400×400)
+   via srcset + sizes; never load full /public for grid tiles
+
+B) STORAGE PAGE (/dashboard/images/storage) — CF Hosted Images chrome
+1. Top drag-and-drop upload zone
+2. Right sidebar Usage: Images stored + Images transformed (live, never hardcoded)
+3. Right sidebar Account: Account ID, Account hash, Image Delivery URL + copy — OR Connect pathway
+4. Preview gallery, multi-select, Export/Delete selected
+5. Per-card … menu: Edit | Copy image url | Export | Delete
+6. Source chips All|R2|CF Images|Drive with mirrored sidebar/connect behavior
+7. Pagination default 20
+8. Routes: /dashboard/images → storage; delivery/keys/sourcing-kit stubs; /:id detail; /:id/edit shell
+
+C) DETAIL PAGE (/dashboard/images/:id) — match CF screenshots
+1. Breadcrumb Hosted images > Images > filename
+2. Export Image | Edit | Delete (+ Share)
+3. Left: Image ID, Created, Filename, Visibility, Tags with + Add tag
+4. + Add tag dropdown UX (REQUIRED):
+   - Search field
+   - List existing tags (from GET /api/images/tags)
+   - When typed value has no match: row "Create key '{tag}'" (CF Create-key pattern)
+5. Right: Metadata JSON
+6. Preview: variant grid (avatar/hero/large/medium/public/small/thumbnail); selected variant large preview
+7. Default selected preview uses avatar (mobile) / small (desktop) via cloudflareImageUrl
+
+D) Share modal UI: Keep private | Share with team | Create public link
+   (backend Resend may land with Lane 3 — UI must exist)
+
+OUT OF SCOPE FOR LANE 1:
+- Transform allowlist / .draw() / derivative INSERT logic (Lane 2)
+- Drive OAuth persistence bugfix (Lane 3)
+- Direct Creator Upload mint API (Lane 3)
+- QC scorecard fill (Lane 3)
+
+VERIFY AGAINST:
+- QC-01, QC-02, QC-03 (avatar/small), QC-04, QC-05 (Add tag Create key UX), QC-07 (IMAGES binding), QC-16, QC-17
+- OAuth scope strings present in oauth.js; OAuth client has Images scopes OR Sam dash proof if API blocked
+- Network: gallery requests avatar/small URLs not /public
+```
+
+---
+
+### Lane 2 — Claude (adjusted — no wrangler/OAuth)
+
+```
+You are LANE 2 (Claude). SSOT plan on main. Lane 1 owns wrangler IMAGES + OAuth Images scopes.
+
+MY DUTIES:
+1. src/core/cf-images-transform.js (allowlist, 10MB hosted / 20MB binding clamps)
+2. APIs: GET /:id, preview-url, POST transform (derivative), batch CF ops via batch API
+3. Migration parent_image_id, transform_json, image_shares
+4. ImagesEditPage transform guts using env.IMAGES (binding already added by Lane 1)
+5. .draw() watermark export
+6. Cache-Control on binding responses
+OUT OF SCOPE: wrangler IMAGES, oauth.js scopes, gallery/detail chrome, Drive OAuth
+VERIFY: QC-06, QC-08, QC-09, QC-10, QC-11, QC-13, QC-18, QC-19
+```
+
+---
+
+### Lane 3 — ChatGPT (unchanged focus)
+
+```
+You are LANE 3 (ChatGPT). SSOT plan on main.
+MY DUTIES: Drive OAuth persist; Sourcing Kit + Keys pages; capabilities tenancy;
+Direct Creator Upload; fill §13.3–13.4 QC (22/22). Do not implement transform pipeline or gallery chrome.
+VERIFY: QC-12, QC-14, QC-15, QC-20, QC-21 + re-check all rows before ship.
+```

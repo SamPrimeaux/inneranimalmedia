@@ -434,6 +434,10 @@ const CLOUDFLARE_OAUTH_SCOPES = [
   'workers-routes.write',
   'workers-scripts.read',
   'workers-scripts.write',
+  // Hosted Images (must also be enabled on the OAuth client in CF dash / API)
+  'images.read',
+  'images.write',
+  'images.metadata_read',
   'offline_access',
 ].join(' ');
 

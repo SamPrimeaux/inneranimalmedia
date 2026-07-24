@@ -38,6 +38,9 @@
 	"ai": {
 		"binding": "AI"
 	},
+	"images": {
+		"binding": "IMAGES"
+	},
 	"browser": {
 		"binding": "MYBROWSER"
 	},
