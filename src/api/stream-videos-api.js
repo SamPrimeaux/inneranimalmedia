@@ -1,38 +1,20 @@
 /**
  * Cloudflare Stream video detail API — Settings / Downloads / Captions / Embed / JSON / Public
  * Details / Tags. Mounted under /api/stream/videos/:uid/* (and /api/stream/from-url,
- * /api/stream/direct-upload) from src/api/moviemode-api.js, which already owns auth +
- * workspace/tenant resolution for the whole /api/stream/* prefix (see production-dispatch.js).
+ * /api/stream/direct-upload) from src/api/moviemode-api.js.
  *
- * GET    /api/stream/videos/:uid                     — full detail (watch_url, iframe_url, hls, dash, thumbnail, meta, tags)
- * PATCH  /api/stream/videos/:uid                      { name?, tags?, require_signed_urls?, allowed_origins?, thumbnail_timestamp_pct? }
- * DELETE /api/stream/videos/:uid
- * GET    /api/stream/videos/:uid/downloads
- * POST   /api/stream/videos/:uid/downloads             — enable default MP4 download
- * DELETE /api/stream/videos/:uid/downloads
- * GET    /api/stream/videos/:uid/captions
- * POST   /api/stream/videos/:uid/captions              { language, vtt }
- * DELETE /api/stream/videos/:uid/captions/:language
- * GET    /api/stream/videos/:uid/public-details
- * PATCH  /api/stream/videos/:uid/public-details         { title?, logo?, share?, channel_link? }
- * GET    /api/stream/videos/:uid/embed                  — embed config + live iframe snippet
- * PATCH  /api/stream/videos/:uid/embed                  { poster_time?, start_time?, controls?, autoplay?, loop?, preload?, muted?, lazy?, primary_color? }
- * GET    /api/stream/videos/:uid/json                   — curl example + live GET response body
- * GET    /api/stream/videos/:uid/tags
- * PATCH  /api/stream/videos/:uid/tags                   { tags: string[] }
- * POST   /api/stream/from-url                           { url, name?, meta?, require_signed_urls? } — Stream copy-from-URL
- * POST   /api/stream/direct-upload                      { max_duration_seconds?, name?, meta?, require_signed_urls? }
- *
- * IAM meta convention — Cloudflare Stream has no native tags / public-details endpoints (unlike
- * CF Images resource tags). `meta` on a Stream video is the only freeform per-video JSON store, so:
- *   meta.iam_tags            = comma-joined string (split on read; same shape as CF Images iam_tags)
- *   meta.iam_public_details  = { title, logo, share, channel_link }
- *   meta.iam_embed           = { poster_time, start_time, controls, autoplay, loop, preload, muted, lazy, primary_color }
- * This is a deliberate parity shim, not a Cloudflare-native feature — documented here so nobody
- * mistakes iam_* meta keys for CF platform fields when reading Stream API responses directly.
+ * Tags: Cloudflare Resource Tagging with resource_type=`stream_video` (same product as Images
+ * `resource_type=image` — see https://developers.cloudflare.com/resource-tagging/reference/resource-types/).
+ * Public Details: Stream watch-page fields have no dedicated REST surface; stored in
+ * meta.iam_public_details (not Resource Tagging). Embed prefs: meta.iam_embed.
  */
 
 import { jsonResponse } from '../core/auth.js';
+import {
+  getResourceTags,
+  setResourceTags,
+  RESOURCE_TYPE_STREAM_VIDEO,
+} from '../core/cf-resource-tags.js';
 import {
   getStreamCredentials,
   getStreamVideoDetail,
@@ -49,7 +31,9 @@ import {
   buildStreamWatchUrls,
 } from '../core/stream-api.js';
 
-function parseTagsInput(raw) {
+const STREAM_TAG_OPTS = { resourceType: RESOURCE_TYPE_STREAM_VIDEO };
+
+function parseLegacyTagList(raw) {
   if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
   if (typeof raw === 'string') {
     return raw
@@ -60,10 +44,37 @@ function parseTagsInput(raw) {
   return [];
 }
 
-function mapDetail(video, accountId) {
+/** Prefer Resource Tagging map; fall back to legacy meta.iam_tags list. */
+function resourceTagsFromBody(body) {
+  if (body?.resource_tags && typeof body.resource_tags === 'object' && !Array.isArray(body.resource_tags)) {
+    return body.resource_tags;
+  }
+  if (body?.tags && typeof body.tags === 'object' && !Array.isArray(body.tags)) {
+    return body.tags;
+  }
+  const list = parseLegacyTagList(body?.tags);
+  if (!list.length) return {};
+  const out = {};
+  for (const t of list) out[t] = '';
+  return out;
+}
+
+async function mapDetail(video, accountId, env) {
   const uid = String(video?.uid || '');
   const meta = video?.meta || {};
-  const urls = buildStreamWatchUrls(uid, accountId);
+  const urls = buildStreamWatchUrls(uid, { video, accountId });
+  let resource_tags = {};
+  let resource_tags_error = null;
+  if (env && uid) {
+    const tagRes = await getResourceTags(env, uid, STREAM_TAG_OPTS).catch((e) => ({
+      ok: false,
+      error: String(e?.message || e),
+      tags: {},
+    }));
+    if (tagRes.ok) resource_tags = tagRes.tags || {};
+    else resource_tags_error = tagRes.error || 'Resource Tagging unavailable';
+  }
+  const legacy = parseLegacyTagList(meta.iam_tags);
   return {
     uid,
     name: meta.name || meta.filename || uid,
@@ -76,11 +87,15 @@ function mapDetail(video, accountId) {
     require_signed_urls: !!video?.requireSignedURLs,
     allowed_origins: Array.isArray(video?.allowedOrigins) ? video.allowedOrigins : [],
     thumbnail_timestamp_pct: video?.thumbnailTimestampPct ?? null,
-    tags: parseTagsInput(meta.iam_tags),
+    /** @deprecated prefer resource_tags — legacy meta.iam_tags list */
+    tags: Object.keys(resource_tags).length ? Object.keys(resource_tags) : legacy,
+    resource_tags,
+    resource_tags_error,
     public_details: meta.iam_public_details || {},
     embed: meta.iam_embed || {},
     meta,
     playback: video?.playback || {},
+    account_id: accountId,
     ...urls,
   };
 }
@@ -114,7 +129,7 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
         requireSignedURLs: body.require_signed_urls,
       });
       const { accountId } = getStreamCredentials(env);
-      return jsonResponse({ ok: true, video: mapDetail(result, accountId) });
+      return jsonResponse({ ok: true, video: await mapDetail(result, accountId, env) });
     } catch (e) {
       return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
     }
@@ -152,21 +167,21 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
     if (!sub) {
       if (method === 'GET') {
         const video = await getStreamVideoDetail(env, uid);
-        return jsonResponse({ ok: true, video: mapDetail(video, accountId) });
+        return jsonResponse({ ok: true, video: await mapDetail(video, accountId, env) });
       }
       if (method === 'PATCH') {
         const body = await readJsonBody(request);
         const current = await getStreamVideoDetail(env, uid);
         const meta = { ...(current?.meta || {}) };
         if (body.name !== undefined) meta.name = String(body.name || '').trim();
-        if (body.tags !== undefined) meta.iam_tags = parseTagsInput(body.tags).join(',');
+        // Tags no longer written via meta — use /tags → Resource Tagging.
         const updated = await updateStreamVideoDetail(env, uid, {
           meta,
           requireSignedURLs: body.require_signed_urls,
           allowedOrigins: body.allowed_origins,
           thumbnailTimestampPct: body.thumbnail_timestamp_pct,
         });
-        return jsonResponse({ ok: true, video: mapDetail(updated, accountId) });
+        return jsonResponse({ ok: true, video: await mapDetail(updated, accountId, env) });
       }
       if (method === 'DELETE') {
         await deleteStreamVideo(env, uid);
@@ -211,6 +226,7 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
     }
 
     if (sub === 'public-details') {
+      // Watch-page branding — NOT Resource Tagging. No Stream REST for these fields.
       const current = await getStreamVideoDetail(env, uid);
       if (method === 'GET') {
         return jsonResponse({ ok: true, public_details: current?.meta?.iam_public_details || {} });
@@ -232,14 +248,17 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
 
     if (sub === 'embed') {
       const current = await getStreamVideoDetail(env, uid);
-      const urls = buildStreamWatchUrls(uid, accountId);
+      const urls = buildStreamWatchUrls(uid, { video: current, accountId });
       if (method === 'GET') {
         const embed = current?.meta?.iam_embed || {};
         return jsonResponse({
           ok: true,
           embed,
           iframe_url: urls.iframe_url,
-          iframe_snippet: `<iframe src="${urls.iframe_url}" style="border:none" height="720" width="1280" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" allowfullscreen="true"></iframe>`,
+          url_error: urls.url_error,
+          iframe_snippet: urls.iframe_url
+            ? `<iframe src="${urls.iframe_url}" style="border:none" height="720" width="1280" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" allowfullscreen="true"></iframe>`
+            : null,
         });
       }
       if (method === 'PATCH') {
@@ -272,16 +291,37 @@ export async function handleStreamVideosDetailApi(request, url, env, _ctx, _scop
     }
 
     if (sub === 'tags') {
-      const current = await getStreamVideoDetail(env, uid);
       if (method === 'GET') {
-        return jsonResponse({ ok: true, tags: parseTagsInput(current?.meta?.iam_tags) });
+        const tagRes = await getResourceTags(env, uid, STREAM_TAG_OPTS);
+        if (!tagRes.ok && !tagRes.beta_untagged && !tagRes.empty) {
+          return jsonResponse(
+            { ok: false, error: tagRes.error || 'Resource Tagging GET failed', resource_tags: {} },
+            tagRes.status || 502,
+          );
+        }
+        return jsonResponse({
+          ok: true,
+          resource_tags: tagRes.tags || {},
+          resource_type: RESOURCE_TYPE_STREAM_VIDEO,
+          tags: Object.keys(tagRes.tags || {}),
+        });
       }
       if (method === 'PATCH') {
         const body = await readJsonBody(request);
-        const tags = parseTagsInput(body.tags);
-        const meta = { ...(current?.meta || {}), iam_tags: tags.join(',') };
-        const updated = await updateStreamVideoDetail(env, uid, { meta });
-        return jsonResponse({ ok: true, tags: parseTagsInput(updated?.meta?.iam_tags) });
+        const next = resourceTagsFromBody(body);
+        const put = await setResourceTags(env, uid, next, STREAM_TAG_OPTS);
+        if (!put.ok) {
+          return jsonResponse(
+            { ok: false, error: put.error || 'Resource Tagging PUT failed', resource_tags: {} },
+            put.status || 502,
+          );
+        }
+        return jsonResponse({
+          ok: true,
+          resource_tags: put.tags || next,
+          resource_type: RESOURCE_TYPE_STREAM_VIDEO,
+          tags: Object.keys(put.tags || next),
+        });
       }
     }
 

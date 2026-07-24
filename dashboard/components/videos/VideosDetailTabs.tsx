@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { ImageTagPicker, type ResourceTagGroup } from '../images/ImageTagPicker';
+import { imagesResourceTagsCatalogUrl } from '../images/imagesApi';
 import type { VideosDetailOutletContext } from './VideosDetailShell';
 import { patchStreamVideo, streamJsonGet, streamJsonMutate } from './videosApi';
 
@@ -59,7 +61,7 @@ export function VideosSettingsTab() {
   const { uid, video, reload, toast } = useOutletContext<VideosDetailOutletContext>();
   const [name, setName] = useState(video.name || '');
   const [signed, setSigned] = useState(!!video.require_signed_urls);
-  const [origins, setOrigins] = useState((video.allowed_origins || []).join(', '));
+  const [origins, setOrigins] = useState((video.allowed_origins || []).join('\n'));
   const [thumbPct, setThumbPct] = useState(
     video.thumbnail_timestamp_pct != null ? String(video.thumbnail_timestamp_pct) : '',
   );
@@ -68,17 +70,26 @@ export function VideosSettingsTab() {
   useEffect(() => {
     setName(video.name || '');
     setSigned(!!video.require_signed_urls);
-    setOrigins((video.allowed_origins || []).join(', '));
+    setOrigins((video.allowed_origins || []).join('\n'));
     setThumbPct(
       video.thumbnail_timestamp_pct != null ? String(video.thumbnail_timestamp_pct) : '',
     );
   }, [video]);
 
+  const reset = () => {
+    setName(video.name || '');
+    setSigned(!!video.require_signed_urls);
+    setOrigins((video.allowed_origins || []).join('\n'));
+    setThumbPct(
+      video.thumbnail_timestamp_pct != null ? String(video.thumbnail_timestamp_pct) : '',
+    );
+  };
+
   const save = async () => {
     setBusy(true);
     try {
       const allowed = origins
-        .split(',')
+        .split(/[\n,]/)
         .map((s) => s.trim())
         .filter(Boolean);
       const res = await patchStreamVideo(uid, {
@@ -100,17 +111,25 @@ export function VideosSettingsTab() {
 
   return (
     <div style={panelStyle}>
-      <Field label="Name">
-        <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
-      </Field>
       <Field label="Require signed URLs">
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
           <input type="checkbox" checked={signed} onChange={(e) => setSigned(e.target.checked)} />
           Enabled
         </label>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.4 }}>
+          When enabled, unsigned iframe/watch URLs will not play (expected CF behavior).
+        </div>
       </Field>
-      <Field label="Allowed origins (comma-separated)">
-        <input value={origins} onChange={(e) => setOrigins(e.target.value)} style={inputStyle} />
+      <Field label="Allowed origins (one per line or comma-separated)">
+        <textarea
+          value={origins}
+          onChange={(e) => setOrigins(e.target.value)}
+          rows={4}
+          style={{ ...inputStyle, maxWidth: 560 }}
+        />
+      </Field>
+      <Field label="Video name">
+        <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
       </Field>
       <Field label="Thumbnail timestamp %">
         <input
@@ -120,9 +139,19 @@ export function VideosSettingsTab() {
           style={inputStyle}
         />
       </Field>
-      <button type="button" disabled={busy} onClick={() => void save()} style={btnStyle}>
-        {busy ? 'Saving…' : 'Save settings'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', maxWidth: 480 }}>
+        <button type="button" disabled={busy} onClick={reset} style={btnStyle}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+          style={{ ...btnStyle, background: 'var(--solar-cyan)', color: '#000', border: 'none' }}
+        >
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -471,6 +500,11 @@ export function VideosPublicDetailsTab() {
 
   return (
     <div style={panelStyle}>
+      <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+        Watch-page branding fields. Unlike Tags, these are <strong>not</strong> Cloudflare Resource
+        Tagging — Stream has no dedicated public-details REST API, so values persist in{' '}
+        <code>meta.iam_public_details</code>.
+      </p>
       <Field label="Title">
         <input value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} />
       </Field>
@@ -493,23 +527,40 @@ export function VideosPublicDetailsTab() {
 
 export function VideosTagsTab() {
   const { uid, video, toast, reload } = useOutletContext<VideosDetailOutletContext>();
-  const [tagsText, setTagsText] = useState((video.tags || []).join(', '));
+  const [resourceTags, setResourceTags] = useState<Record<string, string>>(
+    video.resource_tags || {},
+  );
+  const [groups, setGroups] = useState<ResourceTagGroup[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setTagsText((video.tags || []).join(', '));
+    setResourceTags(video.resource_tags || {});
   }, [video]);
 
-  const save = async () => {
+  useEffect(() => {
+    let cancelled = false;
+    fetch(imagesResourceTagsCatalogUrl(), { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || !d?.groups) return;
+        const next: ResourceTagGroup[] = Object.entries(d.groups as Record<string, string[]>).map(
+          ([key, values]) => ({ key, values: Array.isArray(values) ? values : [] }),
+        );
+        setGroups(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const save = async (next: Record<string, string>) => {
+    setResourceTags(next);
     setBusy(true);
-    const tags = tagsText
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    const res = await streamJsonMutate(uid, 'tags', 'PATCH', { tags });
+    const res = await streamJsonMutate(uid, 'tags', 'PATCH', { resource_tags: next });
     if (!res.ok) toast(res.data?.error || 'Save failed', 'err');
     else {
-      toast('Tags saved');
+      toast('Tags saved to Cloudflare Resource Tagging');
       await reload();
     }
     setBusy(false);
@@ -518,14 +569,20 @@ export function VideosTagsTab() {
   return (
     <div style={panelStyle}>
       <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.45 }}>
-        Stored in Stream <code>meta.iam_tags</code> (Stream has no native tags API).
+        Cloudflare Resource Tagging (<code>resource_type=stream_video</code>) — same account-level
+        tag system as Hosted Images (<code>resource_type=image</code>).
       </p>
-      <Field label="Tags (comma-separated)">
-        <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} style={inputStyle} />
-      </Field>
-      <button type="button" disabled={busy} onClick={() => void save()} style={btnStyle}>
-        Save tags
-      </button>
+      {video.resource_tags_error ? (
+        <div style={{ color: '#f87171', fontSize: 12 }}>{video.resource_tags_error}</div>
+      ) : null}
+      <ImageTagPicker
+        resourceTags={resourceTags}
+        groups={groups}
+        onChange={(next) => {
+          if (busy) return;
+          void save(next);
+        }}
+      />
     </div>
   );
 }

@@ -1,13 +1,17 @@
 /**
- * Cloudflare Resource Tagging — account-level tags for `resource_type=image`.
+ * Cloudflare Resource Tagging — account-level key→value tags.
  *
- * Public beta 2026-04-27. This is NOT Images `metadata` / `iam_tags` — it is the
+ * Public beta 2026-04-27. This is NOT Images/Stream `metadata` / `iam_tags` — it is the
  * standalone Resource Tagging product that powers the CF dashboard "+ Add tag" UI.
+ *
+ * Supported types we use:
+ * - `image` — Cloudflare Images
+ * - `stream_video` — Cloudflare Stream VOD (same API as Images; different resource_type)
  *
  * Docs:
  * - Overview: https://developers.cloudflare.com/resource-tagging/
  * - Manage tags (GET / merge / PUT): https://developers.cloudflare.com/resource-tagging/how-to/manage-tags/
- * - Resource types (`image`): https://developers.cloudflare.com/resource-tagging/reference/resource-types/
+ * - Resource types: https://developers.cloudflare.com/resource-tagging/reference/resource-types/
  * - Changelog / beta quirks: https://developers.cloudflare.com/changelog/post/2026-04-27-resource-tagging-public-beta/
  *
  * Token: prefer `CLOUDFLARE_TAGGING_TOKEN` (Account Owned Token + Tag Admin).
@@ -15,7 +19,14 @@
  * token already has Tag Admin (or Super Admin / Workers Admin).
  */
 
-const RESOURCE_TYPE_IMAGE = 'image';
+export const RESOURCE_TYPE_IMAGE = 'image';
+export const RESOURCE_TYPE_STREAM_VIDEO = 'stream_video';
+
+/** @param {{ resourceType?: string, resource_type?: string }} [opts] */
+function resolveResourceType(opts = {}) {
+  const t = trim(opts.resourceType || opts.resource_type);
+  return t || RESOURCE_TYPE_IMAGE;
+}
 const MAX_KEY_LEN = 256;
 const MAX_VALUE_LEN = 1024;
 const MAX_FILTERS = 20;
@@ -143,7 +154,7 @@ export async function getResourceTags(env, resourceId, opts = {}) {
   if (!id) return { ok: false, error: 'resource_id required', tags: {} };
 
   const qs = new URLSearchParams({
-    resource_type: RESOURCE_TYPE_IMAGE,
+    resource_type: resolveResourceType(opts),
     resource_id: id,
   });
   const res = await fetch(`${tagsBase(creds.accountId)}?${qs}`, {
@@ -203,7 +214,7 @@ export async function setResourceTags(env, resourceId, tagsObject, opts = {}) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      resource_type: RESOURCE_TYPE_IMAGE,
+      resource_type: resolveResourceType(opts),
       resource_id: id,
       tags,
     }),
@@ -295,7 +306,7 @@ export async function listValuesForKey(env, key, opts = {}) {
     return { ok: false, error: e.message, code: e.code || null, values: [], status: 400 };
   }
 
-  const qs = new URLSearchParams({ type: RESOURCE_TYPE_IMAGE });
+  const qs = new URLSearchParams({ type: resolveResourceType(opts) });
   const res = await fetch(
     `${tagsBase(creds.accountId)}/values/${encodeURIComponent(k)}?${qs}`,
     { headers: { Authorization: `Bearer ${creds.token}` } },

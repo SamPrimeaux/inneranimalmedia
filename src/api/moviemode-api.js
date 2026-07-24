@@ -262,12 +262,19 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
         '../core/stream-api.js'
       );
       const limit = Math.min(Number(url.searchParams.get('limit') || 100), 100);
-      const { videos, total } = await listStreamVideos(env, { limit });
+      const { videos, total, customerSubdomain } = await listStreamVideos(env, { limit });
       const { accountId } = getStreamCredentials(env);
+      const mapped = videos.map((v) => mapStreamVideoRow(v, accountId));
+      const subdomain =
+        customerSubdomain ||
+        mapped.find((v) => v.customer_subdomain)?.customer_subdomain ||
+        null;
       return jsonResponse({
         ok: true,
         total,
-        videos: videos.map((v) => mapStreamVideoRow(v, accountId)),
+        account_id: accountId,
+        customer_subdomain: subdomain,
+        videos: mapped,
       });
     } catch (e) {
       return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);

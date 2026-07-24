@@ -120,6 +120,12 @@ Lane B landed on `origin/main` (`ce8c6225` + follow-ups `965deb40` / `afc59ce8`)
 
 Cursor Lane A starts with **Media ▾ nav promotion** + Videos overview (does not reimplement Stream REST).
 
+### Fact correction (2026-07-24)
+
+Claude’s earlier note that “Stream has no native tags API” was **wrong for Tags**. Cloudflare **Resource Tagging** supports `resource_type=stream_video` (same product as Images `resource_type=image`). Tags now use that API. **Public Details** remain a meta shim (`meta.iam_public_details`) — watch-page branding is not Resource Tagging.
+
+Also: `watch_url` / `iframe_url` must use the **playback HLS customer subdomain**, never `customer-${accountId}` (that caused iframe 404s).
+
 
 ## Non-goals
 

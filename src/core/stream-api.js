@@ -307,36 +307,87 @@ export async function createStreamDirectUpload(
   });
 }
 
-/** CF Stream watch/embed/manifest URLs — same subdomain convention as mapStreamVideoRow. */
-export function buildStreamWatchUrls(uid, accountId) {
+/** CF Stream watch/embed/manifest URLs — host MUST come from playback HLS, never accountId. */
+export function resolveStreamCustomerHost(videoOrPlayback, accountId) {
+  const playback =
+    videoOrPlayback?.playback && typeof videoOrPlayback.playback === 'object'
+      ? videoOrPlayback.playback
+      : videoOrPlayback;
+  const hls = playback?.hls || videoOrPlayback?.preview || '';
+  if (hls && /^https?:\/\//.test(String(hls))) {
+    try {
+      return new URL(String(hls)).host;
+    } catch {
+      /* fall through */
+    }
+  }
+  const preview = videoOrPlayback?.preview;
+  if (preview && /^https?:\/\//.test(String(preview))) {
+    try {
+      return new URL(String(preview)).host;
+    } catch {
+      /* fall through */
+    }
+  }
+  // Optional operator override — accountId is NOT a valid customer subdomain code.
+  void accountId;
+  return null;
+}
+
+/**
+ * @param {string} uid
+ * @param {{ customerSubdomain?: string|null, video?: object, accountId?: string }} [opts]
+ */
+export function buildStreamWatchUrls(uid, opts = {}) {
   const id = String(uid || '').trim();
-  const subdomain = `customer-${accountId}.cloudflarestream.com`;
+  const host =
+    String(opts.customerSubdomain || '').trim() ||
+    resolveStreamCustomerHost(opts.video, opts.accountId) ||
+    null;
+  if (!id || !host) {
+    return {
+      customer_subdomain: host,
+      watch_url: null,
+      iframe_url: null,
+      hls: null,
+      dash: null,
+      thumbnail: null,
+      url_error: host
+        ? null
+        : 'customer_subdomain unresolved — wait for Stream playback.hls before embedding',
+    };
+  }
   return {
-    customer_subdomain: subdomain,
-    watch_url: `https://${subdomain}/${id}/watch`,
-    iframe_url: `https://${subdomain}/${id}/iframe`,
-    hls: `https://${subdomain}/${id}/manifest/video.m3u8`,
-    dash: `https://${subdomain}/${id}/manifest/video.mpd`,
-    thumbnail: `https://${subdomain}/${id}/thumbnails/thumbnail.jpg?time=0s&height=360`,
+    customer_subdomain: host,
+    watch_url: `https://${host}/${id}/watch`,
+    iframe_url: `https://${host}/${id}/iframe`,
+    hls: `https://${host}/${id}/manifest/video.m3u8`,
+    dash: `https://${host}/${id}/manifest/video.mpd`,
+    thumbnail: `https://${host}/${id}/thumbnails/thumbnail.jpg?time=0s&height=360`,
+    url_error: null,
   };
 }
 
 export function mapStreamVideoRow(v, accountId) {
   const uid = String(v.uid || '');
-  const hls = v.playback?.hls || v.preview || '';
-  const host =
-    hls && /^https?:\/\//.test(hls)
-      ? new URL(hls).host
-      : `customer-${accountId}.cloudflarestream.com`;
+  const host = resolveStreamCustomerHost(v, accountId);
+  const urls = buildStreamWatchUrls(uid, { customerSubdomain: host, video: v, accountId });
+  const hls = v.playback?.hls || urls.hls || '';
   return {
     uid,
     name: v.meta?.name || v.meta?.filename || uid,
     duration_sec: typeof v.duration === 'number' ? v.duration : null,
+    size_bytes: typeof v.size === 'number' ? v.size : null,
     ready: !!v.readyToStream,
     require_signed_urls: !!v.requireSignedURLs,
-    thumbnail: v.thumbnail || `https://${host}/${uid}/thumbnails/thumbnail.jpg?time=0s&height=360`,
-    hls: hls || `https://${host}/${uid}/manifest/video.m3u8`,
+    thumbnail: v.thumbnail || urls.thumbnail,
+    hls: hls || null,
+    dash: urls.dash,
+    watch_url: urls.watch_url,
+    iframe_url: urls.iframe_url,
+    customer_subdomain: urls.customer_subdomain,
     created: v.created || null,
     status: v.status?.state || null,
+    url_error: urls.url_error,
   };
 }

@@ -17,12 +17,18 @@ export type StreamVideoListItem = {
   uid: string;
   name?: string;
   duration_sec?: number | null;
+  size_bytes?: number | null;
   ready?: boolean;
   require_signed_urls?: boolean;
-  thumbnail?: string;
-  hls?: string;
+  thumbnail?: string | null;
+  hls?: string | null;
+  dash?: string | null;
+  watch_url?: string | null;
+  iframe_url?: string | null;
+  customer_subdomain?: string | null;
   created?: string | null;
   status?: string | null;
+  url_error?: string | null;
   source?: 'stream';
 };
 
@@ -32,14 +38,18 @@ export type StreamVideoDetail = StreamVideoListItem & {
   allowed_origins?: string[];
   thumbnail_timestamp_pct?: number | null;
   tags?: string[];
+  resource_tags?: Record<string, string>;
+  resource_tags_error?: string | null;
   public_details?: Record<string, unknown>;
   embed?: Record<string, unknown>;
   meta?: Record<string, unknown>;
   playback?: Record<string, unknown>;
-  customer_subdomain?: string;
-  watch_url?: string;
-  iframe_url?: string;
-  dash?: string;
+  customer_subdomain?: string | null;
+  watch_url?: string | null;
+  iframe_url?: string | null;
+  dash?: string | null;
+  url_error?: string | null;
+  account_id?: string | null;
 };
 
 export type MediaAssetRow = {
@@ -73,6 +83,8 @@ export async function fetchStreamVideos(limit = 100): Promise<{
   ok: boolean;
   videos: StreamVideoListItem[];
   total: number;
+  account_id?: string | null;
+  customer_subdomain?: string | null;
   error?: string;
 }> {
   const r = await fetch(`/api/stream/videos?limit=${Math.min(limit, 100)}`, {
@@ -86,7 +98,13 @@ export async function fetchStreamVideos(limit = 100): Promise<{
     ...v,
     source: 'stream' as const,
   }));
-  return { ok: true, videos, total: typeof d.total === 'number' ? d.total : videos.length };
+  return {
+    ok: true,
+    videos,
+    total: typeof d.total === 'number' ? d.total : videos.length,
+    account_id: d.account_id || null,
+    customer_subdomain: d.customer_subdomain || null,
+  };
 }
 
 export async function fetchVideoMediaAssets(workspaceId?: string | null): Promise<{
@@ -122,15 +140,27 @@ function assetLooksLikeDrive(row: MediaAssetRow): boolean {
 export async function fetchVideosOverview(
   source: VideosSourceTab,
   workspaceId?: string | null,
-): Promise<{ ok: boolean; rows: VideosListRow[]; error?: string }> {
+): Promise<{
+  ok: boolean;
+  rows: VideosListRow[];
+  account_id?: string | null;
+  customer_subdomain?: string | null;
+  error?: string;
+}> {
   const errors: string[] = [];
   let stream: StreamVideoListItem[] = [];
   let assets: MediaAssetRow[] = [];
+  let account_id: string | null = null;
+  let customer_subdomain: string | null = null;
 
   if (source === 'all' || source === 'stream') {
     const s = await fetchStreamVideos(100);
     if (!s.ok) errors.push(s.error || 'Stream list failed');
-    else stream = s.videos;
+    else {
+      stream = s.videos;
+      account_id = s.account_id || null;
+      customer_subdomain = s.customer_subdomain || null;
+    }
   }
 
   if (source === 'all' || source === 'r2' || source === 'drive') {
@@ -163,9 +193,15 @@ export async function fetchVideosOverview(
   const rows =
     source === 'stream' ? streamRows : source === 'r2' || source === 'drive' ? assetRows : [...streamRows, ...assetRows];
 
+  if (!customer_subdomain) {
+    customer_subdomain = stream.find((v) => v.customer_subdomain)?.customer_subdomain || null;
+  }
+
   return {
     ok: errors.length === 0 || rows.length > 0,
     rows,
+    account_id,
+    customer_subdomain,
     error: errors.length ? errors.join('; ') : undefined,
   };
 }
