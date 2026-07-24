@@ -1518,6 +1518,42 @@ async function getImageRowForPatch(env, imageId, scope, authUser, origin) {
   return row;
 }
 
+/**
+ * In-isolate cache for the real variants catalog — this rarely changes, and
+ * refetching CF on every gallery/detail page load is wasteful. 5 min TTL is
+ * a reasonable balance; a variant rename/resize in the CF dashboard will show
+ * up here within that window, not instantly, which is an acceptable tradeoff.
+ */
+let _variantsCatalogCache = null; // { at: number, variants: Array }
+
+async function handleVariantsCatalog(env) {
+  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
+  if (!accountId || !token) {
+    return jsonResponse({ ok: true, variants: [], source: 'unconfigured' });
+  }
+
+  const now = Date.now();
+  if (_variantsCatalogCache && now - _variantsCatalogCache.at < 5 * 60 * 1000) {
+    return jsonResponse({ ok: true, variants: _variantsCatalogCache.variants, source: 'cache' });
+  }
+
+  try {
+    const variants = await listCfImageVariants(accountId, token);
+    _variantsCatalogCache = { at: now, variants };
+    return jsonResponse({ ok: true, variants, source: 'live' });
+  } catch (e) {
+    // Serve stale cache over a hard failure if we have one, even past TTL.
+    if (_variantsCatalogCache) {
+      return jsonResponse({ ok: true, variants: _variantsCatalogCache.variants, source: 'stale_cache' });
+    }
+    return jsonResponse(
+      { ok: false, variants: [], error: e?.message || 'Failed to load variants catalog' },
+      502,
+    );
+  }
+}
+
 async function handleListTags(url, env, authUser, identity) {
   const scope = await resolveScope(
     env,
