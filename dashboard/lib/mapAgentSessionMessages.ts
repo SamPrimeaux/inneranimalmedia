@@ -117,20 +117,29 @@ function agentFilesFromImageState(
   state: ImageGenerationState | null | undefined,
 ): NonNullable<Message['agentFiles']> {
   if (!state) return [];
+  const extFrom = (url?: string) => {
+    const path = String(url || '').split('?')[0];
+    const m = path.match(/\.(png|jpe?g|webp|gif|svg)$/i);
+    if (!m) return 'png';
+    const e = m[1].toLowerCase();
+    return e === 'jpeg' ? 'jpg' : e;
+  };
   const frames = (state.previewFrames || []).filter((f) => Boolean(f.previewUrl));
   if (!frames.length && (state.previewUrl || state.imageUrl)) {
+    const url = state.previewUrl || state.imageUrl || '';
+    const filename = `variation-1.${extFrom(url)}`;
     return [
       {
-        filename: 'variation-1.jpg',
-        r2Url: state.previewUrl || state.imageUrl,
-        workspacePath: 'images/variation-1.jpg',
+        filename,
+        r2Url: url,
+        workspacePath: `images/${filename}`,
         kind: 'image' as const,
       },
     ];
   }
   return frames.map((f) => {
     const n = f.frameIndex + 1;
-    const filename = `variation-${n}.jpg`;
+    const filename = `variation-${n}.${extFrom(f.previewUrl)}`;
     return {
       filename,
       r2Url: f.previewUrl,

@@ -194,7 +194,10 @@ export const ChatScratchpadRail: FC<Props> = ({ messages, onOpenFile }) => {
     // Fallback: derive from image card frames when stamp path missed a slot.
     const frames = (m.imageGenerationState?.previewFrames ?? []).filter((f) => f.previewUrl);
     return frames.map((f, fi) => {
-      const filename = `variation-${f.frameIndex + 1}.jpg`;
+      const path = String(f.previewUrl || '').split('?')[0];
+      const match = path.match(/\.(png|jpe?g|webp|gif|svg)$/i);
+      const ext = match ? (match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase()) : 'png';
+      const filename = `variation-${f.frameIndex + 1}.${ext}`;
       return {
         key: `ig-${mi}-${fi}`,
         file: {

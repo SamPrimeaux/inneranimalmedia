@@ -186,6 +186,15 @@ function resolveAgentFileKind(filename: string): AgentGeneratedFile['kind'] {
   return 'other';
 }
 
+/** Prefer extension from R2/object URL; fall back to png (platform default). */
+function imageExtFromUrl(url: string): string {
+  const path = String(url || '').split('?')[0];
+  const m = path.match(/\.(png|jpe?g|webp|gif|svg)$/i);
+  if (!m) return 'png';
+  const ext = m[1].toLowerCase();
+  return ext === 'jpeg' ? 'jpg' : ext;
+}
+
 /** Stamp generated image URLs onto the assistant bubble for Scratchpad. */
 function agentFilesFromImageSse(data: unknown): AgentGeneratedFile[] {
   if (!data || typeof data !== 'object') return [];
@@ -196,7 +205,8 @@ function agentFilesFromImageSse(data: unknown): AgentGeneratedFile[] {
     if (!u || !(/^(https?:|data:|\/)/i.test(u))) return;
     if (out.some((f) => f.r2Url === u)) return;
     const id = String(idHint || `img_${out.length + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 28);
-    const filename = label || `generated-${id || out.length + 1}.jpg`;
+    const ext = imageExtFromUrl(u);
+    const filename = label || `generated-${id || out.length + 1}.${ext}`;
     out.push({
       filename,
       r2Url: u,
@@ -216,16 +226,23 @@ function agentFilesFromImageSse(data: unknown): AgentGeneratedFile[] {
       if (!v || typeof v !== 'object') return;
       const row = v as Record<string, unknown>;
       const id = typeof row.generation_id === 'string' ? row.generation_id : `${genId || 'var'}_${i + 1}`;
-      push(row.image_url || row.preview_url, id, `variation-${i + 1}.jpg`);
+      const u = row.image_url || row.preview_url;
+      const ext = typeof u === 'string' ? imageExtFromUrl(u) : 'png';
+      push(u, id, `variation-${i + 1}.${ext}`);
     });
   }
   if (Array.isArray(o.preview_urls)) {
-    o.preview_urls.forEach((u, i) => push(u, `${genId || 'preview'}_${i + 1}`, `variation-${i + 1}.jpg`));
+    o.preview_urls.forEach((u, i) => {
+      const ext = typeof u === 'string' ? imageExtFromUrl(u) : 'png';
+      push(u, `${genId || 'preview'}_${i + 1}`, `variation-${i + 1}.${ext}`);
+    });
   }
+  const primaryUrl = o.image_url || o.preview_url;
+  const primaryExt = typeof primaryUrl === 'string' ? imageExtFromUrl(primaryUrl) : 'png';
   push(
-    o.image_url || o.preview_url,
+    primaryUrl,
     genId || `frame_${varIndex || out.length + 1}`,
-    varIndex != null ? `variation-${varIndex}.jpg` : undefined,
+    varIndex != null ? `variation-${varIndex}.${primaryExt}` : undefined,
   );
   return out;
 }
@@ -479,7 +496,9 @@ function patchAssistantImageGeneration(
       const fromFrames: AgentGeneratedFile[] = merged.previewFrames
         .filter((f) => Boolean(f.previewUrl))
         .map((f) => {
-          const filename = `variation-${f.frameIndex + 1}.jpg`;
+          const url = String(f.previewUrl || '');
+          const ext = imageExtFromUrl(url);
+          const filename = `variation-${f.frameIndex + 1}.${ext}`;
           return {
             filename,
             r2Url: f.previewUrl,

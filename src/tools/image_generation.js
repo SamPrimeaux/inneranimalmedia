@@ -37,11 +37,195 @@ import {
   resolveGeminiAspectRatio,
   resolveGeminiImageSize,
 } from '../core/image-generation-telemetry.js';
+import {
+  applyBindingPipeline,
+  assertWithinBindingInputLimit,
+  TransformValidationError,
+} from '../core/cf-images-transform.js';
 
 const BUCKET = 'inneranimalmedia';
 const PROGRESS_INTERVAL_MS = 5000;
 
 export const IMAGE_GEN_TOOL_NAMES = new Set(['imgx_generate_image', 'imgx_edit_image']);
+
+/** Raster + delivery formats for imgx (default png). `git` typo → gif. */
+export const IMAGE_OUTPUT_FORMATS = Object.freeze(['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg']);
+
+/**
+ * @param {unknown} raw
+ * @returns {'png'|'jpg'|'webp'|'gif'|'svg'|null}
+ */
+export function normalizeImageOutputFormat(raw) {
+  let f = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\./, '')
+    .replace(/^image\//, '');
+  if (f === 'git') f = 'gif';
+  if (f === 'jpeg') return 'jpg';
+  if (f === 'jpg' || f === 'png' || f === 'webp' || f === 'gif' || f === 'svg') return f;
+  return null;
+}
+
+/**
+ * Default **png**. Honor explicit tool params; soft-parse "as webp" / "save as jpg" from prompt.
+ * @param {Record<string, unknown> | null | undefined} params
+ * @param {string} [prompt]
+ * @returns {'png'|'jpg'|'webp'|'gif'|'svg'}
+ */
+export function resolveImageOutputFormat(params, prompt = '') {
+  const fromParams = normalizeImageOutputFormat(
+    params?.format ?? params?.output_format ?? params?.file_type ?? params?.ext,
+  );
+  if (fromParams) return fromParams;
+  const text = `${String(params?.prompt || '')} ${String(prompt || '')}`;
+  const m =
+    text.match(
+      /\b(?:as|in|to|format|file(?:\s*type)?|save\s+as|export\s+as)\s*[:=]?\s*\.?(png|jpe?g|webp|gif|svg|git)\b/i,
+    ) || text.match(/\b(png|jpe?g|webp|gif|svg)\s+(?:format|file|image)\b/i);
+  if (m) return normalizeImageOutputFormat(m[1]) || 'png';
+  return 'png';
+}
+
+/** @param {'png'|'jpg'|'webp'|'gif'|'svg'} ext */
+function mimeForImageExt(ext) {
+  if (ext === 'jpg') return 'image/jpeg';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'svg') return 'image/svg+xml';
+  return 'image/png';
+}
+
+/** @param {string} contentType */
+function extFromContentType(contentType) {
+  const ct = String(contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (ct === 'image/jpeg') return 'jpg';
+  if (ct === 'image/webp') return 'webp';
+  if (ct === 'image/gif') return 'gif';
+  if (ct === 'image/svg+xml') return 'svg';
+  if (ct === 'image/png') return 'png';
+  return '';
+}
+
+/**
+ * Re-encode raster bytes via env.IMAGES (png/jpeg/webp; gif best-effort).
+ * @param {any} env
+ * @param {Uint8Array} bytes
+ * @param {'png'|'jpeg'|'webp'|'gif'} formatKey
+ */
+async function reencodeRasterViaImages(env, bytes, formatKey) {
+  if (!env?.IMAGES) {
+    throw new Error(
+      'IMAGES binding unavailable — cannot convert image format. Redeploy with images binding or pass a matching source mime.',
+    );
+  }
+  assertWithinBindingInputLimit(bytes.byteLength);
+  const source = new Blob([bytes]).stream();
+
+  if (formatKey === 'gif') {
+    try {
+      const output = await env.IMAGES.input(source).output({ format: 'image/gif' });
+      const buf = await output.response().arrayBuffer();
+      return { bytes: new Uint8Array(buf), contentType: 'image/gif' };
+    } catch (e) {
+      const msg = e?.message != null ? String(e.message) : String(e);
+      throw new Error(
+        `format=gif could not be encoded (${msg.slice(0, 160)}). Use format=png (default), jpg, or webp.`,
+      );
+    }
+  }
+
+  const bindingFormat = formatKey === 'jpeg' ? 'jpeg' : formatKey;
+  try {
+    const pipelineResult = await applyBindingPipeline(
+      env,
+      source,
+      { format: bindingFormat, quality: bindingFormat === 'png' ? undefined : 92 },
+      { defaultFormat: 'png' },
+    );
+    const buf = await pipelineResult.output.response().arrayBuffer();
+    const outFmt = pipelineResult.format === 'jpeg' ? 'jpg' : pipelineResult.format;
+    return {
+      bytes: new Uint8Array(buf),
+      contentType: mimeForImageExt(/** @type {'png'|'jpg'|'webp'} */ (outFmt === 'jpg' ? 'jpg' : outFmt)),
+    };
+  } catch (e) {
+    if (e instanceof TransformValidationError) throw e;
+    const msg = e?.message != null ? String(e.message) : String(e);
+    throw new Error(`Image format conversion to ${formatKey} failed: ${msg.slice(0, 200)}`);
+  }
+}
+
+/**
+ * SVG delivery for generative rasters: PNG (or given raster) embedded as data-URI SVG.
+ * True vector drawing is illustration_create — this satisfies "save as .svg" requests.
+ * @param {any} env
+ * @param {Uint8Array} bytes
+ * @param {string} contentType
+ */
+async function wrapRasterAsSvg(env, bytes, contentType) {
+  let raster = bytes;
+  let mime = String(contentType || 'image/png').split(';')[0].trim() || 'image/png';
+  if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
+    const png = await reencodeRasterViaImages(env, bytes, 'png');
+    raster = png.bytes;
+    mime = png.contentType;
+  }
+  let width = 1024;
+  let height = 1024;
+  try {
+    if (env?.IMAGES?.info) {
+      const info = await env.IMAGES.info(new Blob([raster], { type: mime }).stream());
+      if (info?.width) width = info.width;
+      if (info?.height) height = info.height;
+    }
+  } catch {
+    /* dimensions optional */
+  }
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < raster.length; i += chunk) {
+    binary += String.fromCharCode(...raster.subarray(i, i + chunk));
+  }
+  const b64 = btoa(binary);
+  const svg =
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ` +
+    `width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<image width="${width}" height="${height}" href="data:${mime};base64,${b64}"/>` +
+    `</svg>`;
+  return {
+    bytes: new TextEncoder().encode(svg),
+    contentType: 'image/svg+xml',
+    svg_embedded_raster: true,
+  };
+}
+
+/**
+ * Force delivery format (default png). Gemini often returns JPEG — re-encode unless already matching.
+ * @param {any} env
+ * @param {Uint8Array} bytes
+ * @param {string} contentType
+ * @param {'png'|'jpg'|'webp'|'gif'|'svg'} format
+ */
+export async function ensureGeneratedImageFormat(env, bytes, contentType, format) {
+  const target = normalizeImageOutputFormat(format) || 'png';
+  const srcExt = extFromContentType(contentType) || 'png';
+
+  if (target === 'svg') {
+    return wrapRasterAsSvg(env, bytes, contentType);
+  }
+
+  if (srcExt === target) {
+    return { bytes, contentType: mimeForImageExt(target) };
+  }
+
+  const bindingKey = target === 'jpg' ? 'jpeg' : target;
+  return reencodeRasterViaImages(env, bytes, /** @type {'png'|'jpeg'|'webp'|'gif'} */ (bindingKey));
+}
 
 /** Model-supplied variation count only (1–4). Prefer explicit `variations`; else `prompts.length`. */
 export function normalizeImageVariationCount(params) {
@@ -966,7 +1150,9 @@ export async function uploadImageBytesToR2(env, bytes, contentType, ctx = {}) {
         ? 'webp'
         : contentType === 'image/gif'
           ? 'gif'
-          : 'png';
+          : contentType === 'image/svg+xml'
+            ? 'svg'
+            : 'png';
   const key = `${uploadPack.prefix}gen-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
   const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   await binding.put(key, buf, { httpMetadata: { contentType: contentType || 'image/png' } });
@@ -1552,6 +1738,18 @@ async function runSingleImageGenerationForTool(env, toolName, params, ctx = {}) 
           tenantId: ctx.tenantId,
         });
 
+  const outputFormat = resolveImageOutputFormat(resolvedParams, prompt);
+  const formatted = await ensureGeneratedImageFormat(
+    env,
+    gen.bytes,
+    gen.contentType || 'image/png',
+    outputFormat,
+  );
+  gen.bytes = formatted.bytes;
+  gen.contentType = formatted.contentType;
+  gen.output_format = outputFormat;
+  if (formatted.svg_embedded_raster) gen.svg_embedded_raster = true;
+
   const previewUrls = [...(gen.preview_urls || [])];
   const billingCtx = {
     quality: normalizeOpenAiImageQuality(modelKey || String(gen.model || ''), resolvedParams.quality),
@@ -1633,6 +1831,9 @@ async function runSingleImageGenerationForTool(env, toolName, params, ctx = {}) 
       content_tier: contentTier,
       routing_arm_id: routingArmId,
       cost_usd: draft.cost_usd ?? usageAttached.cost_usd,
+      format: outputFormat,
+      content_type: gen.contentType,
+      ...(gen.svg_embedded_raster ? { svg_embedded_raster: true } : {}),
     };
   }
 
@@ -1728,7 +1929,12 @@ async function runSingleImageGenerationForTool(env, toolName, params, ctx = {}) 
     console.warn('[image_generation] saved_rateable_row_failed', e?.message ?? e);
   }
 
-  return savedUsageResult;
+  return {
+    ...savedUsageResult,
+    format: outputFormat,
+    content_type: gen.contentType,
+    ...(gen.svg_embedded_raster ? { svg_embedded_raster: true } : {}),
+  };
 }
 
 /**
