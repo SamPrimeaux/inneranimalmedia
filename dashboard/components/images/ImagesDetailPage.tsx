@@ -16,10 +16,12 @@ import { ImagesToastStack } from './ImagesUsageAccountSidebar';
 import { NAMED_VARIANTS } from './imagesRegistry';
 import {
   buildCfImageUrl,
+  fetchRealVariantsCatalog,
   imagesDetailUrl,
   imagesPatchUrl,
   imagesResourceTagsCatalogUrl,
   useImagesToast,
+  type CfVariantDef,
 } from './imagesApi';
 
 type DetailImage = {
