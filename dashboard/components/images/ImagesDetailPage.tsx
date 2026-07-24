@@ -143,6 +143,10 @@ export function ImagesDetailPage() {
 
   const previewUrl = variantMap[selectedVariant] || baseUrl;
   const galleryPreview = cloudflareImageUrl(baseUrl);
+  const selectedVariantHint = useMemo(
+    () => NAMED_VARIANTS.find((v) => v.id === selectedVariant)?.hint || '',
+    [selectedVariant],
+  );
 
   const saveResourceTags = async (next: Record<string, string>) => {
     if (!img) return;
