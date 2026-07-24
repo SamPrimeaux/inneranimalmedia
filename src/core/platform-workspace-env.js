@@ -35,7 +35,7 @@ export function pickAuthUserWorkspaceId(authUser) {
 }
 
 /**
- * Default personal workspace for new tenant signup only (e.g. Connor → ws_connor…).
+ * Default personal workspace for new tenant signup only (derived as ws_{userKey}).
  * Never applied to superadmin / platform owner — they use D1 active_workspace_id or env.WORKSPACE_ID.
  * @param {string} userKey
  */

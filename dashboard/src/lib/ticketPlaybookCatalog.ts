@@ -206,12 +206,12 @@ export const TICKET_PLAYBOOK_BY_ID: Record<string, TicketPlaybookEntry> = {
     batch_rank: 1,
   },
   tkt_connor_local_terminal_e2e: {
-    what: 'Multi-user local lane: agentsam start-local + tunnel + dashboard Local validation for Connor.',
-    needed: 'Run full E2E as Connor (or with his session); CF OAuth may need reconnect first.',
+    what: 'Multi-user local lane: agentsam start-local + tunnel + dashboard Local validation for a BYOK member.',
+    needed: 'Run full E2E as that member session; CF OAuth may need reconnect first.',
     pass: 'Local lane connects, PTY works, no cross-user bleed.',
     fail: 'Tunnel/auth/cwd fail or wrong tenant credentials.',
     deliverable: 'Signed E2E checklist in plan; ticket closed.',
-    steps: 'Connor CF reconnect if needed → start-local → tunnel → dashboard Local → commands.',
+    steps: 'Member CF reconnect if needed → start-local → tunnel → dashboard Local → commands.',
   },
   tkt_hardcoded_routing_audit: {
     what: 'Parent audit for all hidden reroutes on agent + Design Studio. Phase 1 findings already written.',

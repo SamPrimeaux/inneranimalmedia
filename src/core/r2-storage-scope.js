@@ -5,7 +5,7 @@
  * Never hardcode dropped bindings (R2/iam-platform, DOCS_BUCKET, EMAIL, …).
  *
  * HTTP (/api/r2/*, /api/storage/*) and dashboard must use these helpers so
- * non-owner users (e.g. Connor) never get platform bindings or Wrangler S3 secrets.
+ * non-owner users never get platform bindings or Wrangler S3 secrets.
  *
  * Audit hotspots (still may reference bucket strings for IAM-owned paths):
  *   src/api/r2-api.js          — R2 HTTP API (gate with assertDashboardR2BucketAccess)

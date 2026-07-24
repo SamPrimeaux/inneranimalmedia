@@ -2,19 +2,10 @@ import type { KanbanColumn, KanbanTask } from "../../../api/kanban";
 import type { BoardTask, ColumnDef, TaskStatus } from "./types";
 import { columnNameToStatus, kanbanPriorityToP } from "./types";
 
-const ASSIGNEE_LABELS: Record<string, string> = {
-  au_871d920d1233cbd1: 'Sam',
-  au_5d17673408aaebc7: 'Connor',
-};
-
 function assigneeDisplay(assigneeId: string | null | undefined): string | undefined {
   const raw = assigneeId?.trim();
   if (!raw) return undefined;
-  if (ASSIGNEE_LABELS[raw]) return ASSIGNEE_LABELS[raw];
-  if (raw.startsWith('au_')) return raw;
-  const lower = raw.toLowerCase();
-  if (lower.includes('connor')) return 'Connor';
-  if (lower.includes('inneranimals.com') || lower.includes('sam_primeaux') || lower.includes('sam@')) return 'Sam';
+  // Never hardcode au_* → person names (identity law). Prefer email local-part; else show id.
   if (raw.includes('@')) {
     const local = raw.split('@')[0] || raw;
     return local

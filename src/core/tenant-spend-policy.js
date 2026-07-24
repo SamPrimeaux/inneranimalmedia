@@ -2,7 +2,7 @@
  * Tenant spend caps + BYOK flags from tenants.meta_json / tenants.settings.
  * Enforced at catalog dispatch and model billing gates.
  *
- * Connor model: platform_allowance_usd = lifetime platform AI spend before BYOK required
+ * Tenant model: platform_allowance_usd = lifetime platform AI spend before BYOK required
  * (NOT a daily recurring budget).
  */
 

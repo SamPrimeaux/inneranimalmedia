@@ -57,7 +57,7 @@ export function resolveTerminalExecRouting(ctx = {}) {
         lane: 'gcp_primary_mobile',
       };
     }
-    // Any user with a provisioned device tunnel (Connor Windows, Sam Mac, etc.)
+    // Any user with a provisioned device tunnel (Windows BYOK, Mac operator, etc.)
     return {
       target_type: explicitType || 'user_hosted_tunnel',
       target_id: explicitTarget || null,

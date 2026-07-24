@@ -38,10 +38,10 @@ ORDER BY /* type rank: local, platform_vm, sandbox */ target_priority ASC, is_de
 
 **Never use `is_default` alone** — combine type rank + `target_priority` + `is_default`.
 
-## Per-tenant: Connor
+## Per-tenant: BYOK member
 
-- `conn_connor_primary` → sandbox only (`wss://sandboxterminal.inneranimalmedia.com`, `platform_workspace` cwd). No `terminal.*` or `localpty.*`.
-- Connor self-service: `self_service_enabled = 1` + his `ws_url` on a `user_hosted_tunnel` row.
+- Sandbox-only connection rows use `platform_workspace` cwd (`wss://sandboxterminal…`). No `terminal.*` or `localpty.*`.
+- Member self-service: `self_service_enabled = 1` + their `ws_url` on a `user_hosted_tunnel` row.
 
 ## Auth
 

@@ -1,5 +1,5 @@
 /**
- * Finance summary enrichment (D1 + Supabase). SUPERADMIN ONLY — never call for Connor/scoped users.
+ * Finance summary enrichment (D1 + Supabase). SUPERADMIN ONLY — never call for scoped tenant users.
  */
 import { supabaseGetJson } from './health/supabaseRest.js';
 

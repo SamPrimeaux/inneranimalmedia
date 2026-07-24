@@ -132,7 +132,7 @@ Never request a scope that is not in the client list below.
 
 ## Media Library note
 
-For `/dashboard/images` customer BYOK (Connor, etc.):
+For `/dashboard/images` customer BYOK:
 
 - Client **offers** `images.read` + `images.write` (confirmed in this catalog).
 - Worker authorize list **must include** those two when requesting CF Images features.

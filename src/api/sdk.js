@@ -1,5 +1,5 @@
 /**
- * Agent Sam SDK API — CLI auth + server-side scaffold (Connor never touches IAM repos).
+ * Agent Sam SDK API — CLI auth + server-side scaffold (external developers never touch IAM repos).
  *
  * POST /api/sdk/auth/start
  * GET  /api/sdk/auth/authorize

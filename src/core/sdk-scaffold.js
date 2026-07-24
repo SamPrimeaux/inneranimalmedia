@@ -1,6 +1,6 @@
 /**
  * Agent Sam SDK scaffold — CORE provisions CF resources and returns file contents.
- * Connor never clones IAM repos; Agent Sam builds his project server-side.
+ * External developers never clone IAM repos; Agent Sam builds the project server-side.
  */
 import { cfApi } from './customer-cloudflare-dispatch.js';
 import { getIntegrationOAuthRow } from './user-oauth-token.js';

@@ -1,6 +1,6 @@
 /**
  * Whitelisted `public.documents.source` facets for unified-search (SQL fragments are static — no user text).
- * Ingest prefixes today include: docs:*, d1:*, connor_*, manual_*, etc.
+ * Ingest prefixes today include: docs:*, d1:*, tenant course prefixes, manual_*, etc.
  */
 
 /** @type {readonly string[]} */

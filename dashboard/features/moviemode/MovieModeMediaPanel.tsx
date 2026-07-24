@@ -468,7 +468,7 @@ export const MovieModeMediaPanel: React.FC<{
           <div className="space-y-3">
             <p className="text-[11px] text-muted px-1 leading-relaxed">
               <strong className="text-main">IAM Starter B-Roll (Free)</strong> — platform
-              clips for Connor and all workspaces. Apply imports from Stream → your library, then adds to
+              clips for all workspaces. Apply imports from Stream → your library, then adds to
               timeline.
             </p>
             <div className="grid grid-cols-2 gap-2">

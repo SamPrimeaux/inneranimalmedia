@@ -88,8 +88,8 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     workspaceId,
     authUser,
     request,
-    // Platform operators (Sam superadmin au_*) get platform credential access.
-    // Connor and other members: isOperatorCall false — no terminal.* MCP escalation.
+    // Platform operators (superadmin) get platform credential access.
+    // Other members: isOperatorCall false — no terminal.* MCP escalation.
     isOperatorCall: isPlatformOp,
     isInternalAgent: isPlatformOp,
     isSuperadmin,

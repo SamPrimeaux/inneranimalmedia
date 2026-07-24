@@ -28,7 +28,7 @@ function hasWriteCollaboration(repo) {
 
 /**
  * @param {unknown[]} repos
- * @param {string} userLogin — connected GitHub account (e.g. connordmcneely96)
+ * @param {string} userLogin — connected GitHub account login
  * @param {{ allowPlatformRepos?: boolean }} [opts]
  * @returns {unknown[]}
  */

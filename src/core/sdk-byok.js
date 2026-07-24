@@ -1,5 +1,5 @@
 /**
- * BYOK status + key upsert for SDK init (Connor pastes keys in CLI → user_api_keys).
+ * BYOK status + key upsert for SDK init (customer pastes keys in CLI → user_api_keys).
  */
 import { getUserBYOKey } from '../api/provisioning.js';
 

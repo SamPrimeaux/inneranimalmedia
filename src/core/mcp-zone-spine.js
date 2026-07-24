@@ -23,7 +23,7 @@ export function normalizeMcpZoneSlug(raw) {
 }
 
 /**
- * Normalize a user/container slug (sam, connor, …). Rejects legacy role facet names.
+ * Normalize a user/container slug (alphanumeric workspace tags). Rejects legacy role facet names.
  * @param {string | null | undefined} raw
  */
 export function normalizeSandboxContainerSlug(raw) {

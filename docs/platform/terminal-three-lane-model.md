@@ -14,7 +14,7 @@ Canonical split for `agentsam_terminal_*` tools. Each lane has one job; tools mu
 
 | Tool | Exec surface | Who | When |
 |------|--------------|-----|------|
-| **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | **Sam:** `localpty.inneranimalmedia.com` → **samsmac** tunnel (Mac awake). Connor: his provisioned tunnel when set up |
+| **`agentsam_terminal_local`** | Caller's **own device** via `user_hosted_tunnel` | Any user who completed device setup | Platform operator: `localpty.inneranimalmedia.com` → desk Mac tunnel. BYOK members: their provisioned tunnel when set up |
 | **`agentsam_terminal_remote`** | **GCP iam-tunnel VM** (`terminal.inneranimalmedia.com`) | Platform operators (Sam) | Mac asleep, phone, OAuth — sparse git/shell/wrangler on Linux clone. **Not for CAD** — see [`iam-tunnel-vm-role-2026-07.md`](./iam-tunnel-vm-role-2026-07.md) |
 | **`agentsam_terminal_sandbox`** | **Cloudflare Container** — single shared `inneranimalmedia` pool (path/R2-isolated, not per-`zone_slug` DO instance) | Any workspace user with tool access | Isolated dev zones, experiments — **default R2 FUSE persistence**. Design Studio CAD jobs use the separate **`iam-cad-worker`** container (`CAD_DISPATCH_TARGET=container`) |
 
@@ -47,16 +47,16 @@ Health-aware routing (`terminal-connection-health.js`): probe localpty first in 
 
 ## Personas
 
-### Sam (platform operator)
+### Platform operator
 
-- **Awake at desk:** `local` → Mac `localpty.inneranimalmedia.com` → `/Users/samprimeaux/inneranimalmedia`
-- **Mac asleep / phone / ChatGPT:** `remote` → GCP VM → `/home/samprimeaux/inneranimalmedia`
+- **Awake at desk:** `local` → Mac `localpty.inneranimalmedia.com` → operator desk repo path
+- **Mac asleep / phone / ChatGPT:** `remote` → GCP VM → remote clone path
 - **Risky experiment / MCP zone:** `sandbox` → Container (shared `inneranimalmedia` pool; `zone_slug=engineer|architect|…` sets cwd/R2 path, not the container instance)
 
-### Connor (tenant dev)
+### BYOK tenant member
 
-- **His PC:** `local` → his `user_hosted_tunnel` → PowerShell on Windows (when provisioned)
-- **Never:** `remote` (Sam's production VM clone)
+- **Their device:** `local` → their `user_hosted_tunnel` (when provisioned)
+- **Never:** `remote` (platform production VM clone)
 - **Default cloud work:** `sandbox` → shared Container pool, tenant-scoped cwd/R2 path
 
 ## Remote VM capability checklist (Sam)

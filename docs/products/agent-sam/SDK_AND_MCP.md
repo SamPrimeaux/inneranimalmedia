@@ -31,7 +31,7 @@ POST /api/sdk/scaffold   (NDJSON stream)
 
 **Scaffold:** `src/core/sdk-scaffold.js` — provisions D1, KV, Worker bindings via customer Cloudflare OAuth; streams template files (`sdk-gorilla-template.js`).
 
-**Design intent:** External developers (e.g. Connor) never clone IAM repos — Agent Sam provisions server-side.
+**Design intent:** External developers never clone IAM repos — Agent Sam provisions server-side.
 
 ---
 
